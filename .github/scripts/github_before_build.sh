@@ -24,7 +24,7 @@ cat "$_root_dir/flags.macos.gn" >> "$_src_dir/out/Default/args.gn"
 cd "$_src_dir"
 
 # Fix ESBuild
-_esbuild_version="$(/opt/homebrew/bin/esbuild --version)"
+_esbuild_version="$("$(brew --prefix)/bin/esbuild" --version)"
 _esbuild_module="$_root_dir/build/esbuild-node/node_modules/esbuild"
 if [[ ! -f "$_esbuild_module/package.json" ]] || \
     [[ "$(node -p 'require(process.argv[1]).version' "$_esbuild_module/package.json")" != "$_esbuild_version" ]]; then
