@@ -1,66 +1,81 @@
-name: Build macOS binaries of Ungoogled Chromium
-on:
-  workflow_dispatch:
-  push:
-    tags:
-      - '**'
+#!/bin/bash
+# Simple script for packing Ungoogled-Chromium macOS build artifacts on GitHub Actions
 
-jobs:
-  build:
-    name: Build macOS binaries of Ungoogled Chromium
-    strategy:
-      matrix:
-        # Intel only for now: the browser's dev machine is an Intel Mac.
-        arch: [x86_64]
-      fail-fast: true
-      max-parallel: 1
-    uses: ./.github/workflows/building.yml
-    secrets: inherit
-    with:
-      arch: ${{ matrix.arch }}
-      # GitHub's free Intel runners (free and unlimited for public repositories).
-      os: macos-15-intel
+set -euo pipefail
 
-  release:
-    needs: build
-    if: github.event_name == 'push' && contains(github.ref, 'refs/tags/')
-    name: Release macOS binaries of Ungoogled Chromium
-    runs-on: macos-latest
-    steps:
-      - name: Clone repository
-        uses: actions/checkout@v7
-        with:
-          submodules: true
-      - name: Copy GitHub specific scripts to git-root folder
-        run: cp -va ./.github/scripts/ ./
-      - name: Disable Spotlight
-        run: sudo mdutil -a -i off
-      - name: Install coreutils
-        run: brew install coreutils
-      - name: Prepare release
-        id: bake
-        run: ./github_prepare_release.sh | tee -a github_actions_release.log
-      - name: Get built x86-64 binary
-        uses: actions/download-artifact@v8
-        with:
-          name: ${{ steps.bake.outputs.x64_file_name }}
-      - name: Get built arm64 binary
-        uses: actions/download-artifact@v8
-        with:
-          name: ${{ steps.bake.outputs.arm64_file_name }}
-      - name: List files
-        run: ls -la
-      - name: Generate release note
-        run: ./github_generate_release_note.sh | tee -a github_actions_release.log
-      - name: Release Ungoogled-Chromium binaries
-        uses: softprops/action-gh-release@4634c16e79c963813287e889244c50009e7f0981
-        with:
-          body_path: ./github_release_note.md
-          draft: false
-          prerelease: false
-          files: |
-            ./release_asset/${{ steps.bake.outputs.arm64_file_name }}
-            ./release_asset/${{ steps.bake.outputs.x64_file_name }}
-          name: ${{ steps.bake.outputs.release_name }}
-          tag_name: ${{ steps.bake.outputs.release_tag_version }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+_target_cpu="${1:-x86_64}"
+
+_script_dir="$(dirname "$(greadlink -f "$0")")"
+_root_dir="${GITHUB_WORKSPACE:-$(git -C "$_script_dir" rev-parse --show-toplevel)}"
+_root_dir="$(greadlink -f "$_root_dir")"
+_src_dir="$_root_dir/build/src"
+
+# If build finished successfully
+if [[ -f "$_root_dir/build_finished_$_target_cpu.log" ]] ; then
+  # For packaging
+  _chromium_version="$(cat "$_root_dir/ungoogled-chromium/chromium_version.txt")"
+  _ungoogled_revision="$(cat "$_root_dir/ungoogled-chromium/revision.txt")"
+  _package_revision="$(cat "$_root_dir/revision.txt")"
+
+  _file_name="ungoogled-chromium_${_chromium_version}-${_ungoogled_revision}.${_package_revision}_${_target_cpu}-macos.dmg"
+  _hash_name="${_file_name}.hashes.md"
+
+  cd "$_src_dir"
+
+  if [[ -n "${MACOS_CERTIFICATE:-}" ]]; then
+    # Prepare the certificate for app signing
+    printf '%s' "$MACOS_CERTIFICATE" | base64 --decode > "$TMPDIR/certificate.p12"
+
+    security create-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+    security default-keychain -s build.keychain
+    security unlock-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+    security import "$TMPDIR/certificate.p12" -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+    security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+  else
+    # No Developer ID certificate configured: sign ad hoc instead of failing.
+    export MACOS_AD_HOC_SIGNING=1
+  fi
+
+  # Sign, notarize, staple, and package using the same path as local builds.
+  "$_root_dir/sign_and_package_app.sh" "$_root_dir/$_file_name"
+
+  cd "$_root_dir"
+  echo -e "md5: \nsha1: \nsha256: " | tee ./hash_types.txt
+  { md5sum "$_file_name" ; sha1sum "$_file_name" ; sha256sum "$_file_name" ; } | tee ./sums.txt
+
+  _hash_md=$(paste ./hash_types.txt ./sums.txt | awk '{print $1 " " $2}')
+
+  printf 'file_name=%s\n' "$_file_name" >> "$GITHUB_OUTPUT"
+
+  printf '[Hashes](https://en.wikipedia.org/wiki/Cryptographic_hash_function) for the disk image `%s`: \n' "$_file_name" | tee -a ./${_hash_name}
+  printf '\n```\n%s\n```\n' "$_hash_md" | tee -a ./${_hash_name}
+
+  # Use separate folder for build product, so that it can be used as individual asset in case the release action fails
+  mkdir -p release_asset
+  mv -vn ./*.dmg release_asset/ || true
+
+  ls -kahl release_asset/
+  du -hs release_asset/
+fi
+
+gsync --file-system "$_src_dir"
+
+# Needs to be compressed to stay below GitHub's upload limit 2 GB (?!) 2020-11-24; used to be  5-8GB (?)
+tar -C build -c -f - src | zstd -vv -11 -T0 -o build_src.tar.zst
+
+sha256sum ./build_src.tar.zst | tee ./sums.txt
+
+mkdir -p upload_part_build
+mv -vn ./*.zst ./sums.txt upload_part_build/ || true
+cp -va ./*.log upload_part_build/
+
+ls -kahl upload_part_build/
+du -hs upload_part_build/
+
+mkdir upload_logs
+mv -vn ./*.log upload_logs/
+
+ls -kahl upload_logs/
+du -hs upload_logs/
+
+echo "ready for upload action"
