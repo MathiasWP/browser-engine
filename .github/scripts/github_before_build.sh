@@ -25,10 +25,11 @@ cd "$_src_dir"
 
 # Fix ESBuild
 _esbuild_version="$(/opt/homebrew/bin/esbuild --version)"
-_esbuild_module="$_root_dir/build/esbuild-node/node_modules/esbuild"
+# Inside the source tree, so it travels with the archive the resuming build jobs unpack.
+_esbuild_module="$_src_dir/out/esbuild-node/node_modules/esbuild"
 if [[ ! -f "$_esbuild_module/package.json" ]] || \
     [[ "$(node -p 'require(process.argv[1]).version' "$_esbuild_module/package.json")" != "$_esbuild_version" ]]; then
-  npm install --prefix "$_root_dir/build/esbuild-node" --no-save --package-lock=false --no-bin-links --ignore-scripts --omit=optional --no-audit --no-fund "esbuild@$_esbuild_version"
+  npm install --prefix "$_src_dir/out/esbuild-node" --no-save --package-lock=false --no-bin-links --ignore-scripts --omit=optional --no-audit --no-fund "esbuild@$_esbuild_version"
 fi
 rm -rf third_party/devtools-frontend/src/node_modules/esbuild
 ln -s "$_esbuild_module" third_party/devtools-frontend/src/node_modules/esbuild
