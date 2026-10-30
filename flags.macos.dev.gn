@@ -8,6 +8,6 @@ symbol_level=0
 blink_symbol_level=0
 dcheck_always_on=false
 enable_dsyms=false
-# Non-official builds turn these on, and with this toolchain base's fails to compile
+# Non-official builds turn these on, and with this toolchain the precompiled header fails to compile
 # ("missing 'export module' declaration in module interface unit").
 enable_precompiled_headers=false
