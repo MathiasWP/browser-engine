@@ -59,8 +59,10 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
   `chrome::ExecuteCommand` / `chrome::IsCommandEnabled`, so tab restore, extensions and
   policies see them as Chrome's own. Key equivalents the page doesn't take are redispatched
   to the app's main menu (Webium's Mac path), then to the widget's FocusManager (extension
-  shortcuts), as `BrowserView::HandleKeyboardEvent` does. Chrome's reserved shortcuts (⌘W, ⌘T,
-  ⌘N...) run before the page sees them, through Webium's accelerator table.
+  shortcuts), as `BrowserView::HandleKeyboardEvent` does. Chrome's own accelerator table on
+  the Mac (F12, F7, Esc) follows BrowserView too: the page sees the key first, and Chrome runs
+  it only if the page and the app's menu don't. Only reserved commands run before the page,
+  and on the Mac those (⌘W, ⌘T...) are the app's menu items.
 - **Start and quit.** No `AppController`, no main menu, no `BrowserCrApplication` when
   embedded (patches 07, 08, 09). The hooks take over AppController's part: its keep-alive
   (the process lives with no windows), dropping it on `NSApplicationWillTerminateNotification`
@@ -188,6 +190,11 @@ tree in `github_fetch_resources.sh`; the iterate script already skips applied pa
 - **In `engineDidCreateWindow:`** set the delegate, call `setContentView:` once and style the
   window; don't run commands synchronously (the Browser is still being constructed).
   After `windowWillClose:`, `nativeWindow` is nil and every call is a no-op.
+- **Don't change the tab strip from inside a tab event.** `didInsertTab:`, `didRemoveTab:`,
+  `didMoveTab:` and `didActivateTab:` arrive synchronously from
+  `TabStripModelObserver::OnTabStripModelChanged()`. Activating, moving or closing a tab
+  there, or running a command that does, trips `TabStripModel`'s re-entrancy `CHECK`
+  (`tab_strip_model.cc`). Post it to the next turn of the run loop instead.
 - **Arguments.** Suggested: `--no-first-run --no-default-browser-check
   --disable-features=Glic` (below).
 
@@ -210,6 +217,18 @@ Found while reading, not switchable (guard patches when they bite):
 - Null-checked (no action needed): `ios_promo_controller.cc:93`,
   `vertical_tab_iph_controller.cc:74`, `auto_picture_in_picture_window_occlusion_helper_widget.cc`,
   `dictation/application_registration_delegate.cc`, `toast_controller.cc` (no anchor → no toast).
+- Choosers (Bluetooth, USB, serial, HID): `chooser_bubble_ui.cc:303-311` dereferences the
+  BrowserView unchecked.
+- Pointer and keyboard lock prompts: `exclusive_access_permission_prompt.cc:25` calls
+  `GetChipController()->ShowPermissionChip()` unchecked. That path only runs with
+  `kKeyboardLockPrompt`, which is off by default at 156.
+- Chrome's own Views windows (popups, app windows) validate menu items through
+  `AppController.sharedController` (`browser_native_widget_mac.mm:478`). If the app's menu
+  reaches them, that makes an AppController, which takes over `NSApp.delegate`. That would need
+  a guard like patch 09.
+- `chrome_exe_main_mac.cc` registers PartitionAlloc's malloc zone before any thread starts.
+  The app doesn't, so the zone is swapped when the framework loads, which is only safe while
+  the process has one thread. The app loads it first thing in `main()`.
 - Autofill and password bubbles call `GetAutofillBubbleHandler()`, which is null for us (as
   for Webium); expect a crash when Chrome offers to save a password or address until
   milestone 2. Turning off "Offer to save passwords" and address autofill in prefs avoids it.
@@ -238,8 +257,9 @@ bubble, IPH, eye dropper (null), caret browsing dialog, tab search, incognito di
 unframed mode, Chrome Labs, `AsBrowserView()` (null).
 
 `BELocationBar` is Webium's stub without the permission dashboard: `IsDrawn()` is false, so
-permission requests take the bubble path and `GetChipController()` (null) isn't asked
-(`permission_prompt_factory.cc`).
+permission requests take the bubble path (`permission_prompt_factory.cc`). That path checks
+`GetChipController()` (null) for null and anchors to `GetChipAnchor()`, which floats the bubble
+over the window: an empty anchor dereferences the BrowserView (`bubble_anchor_util_views.cc`).
 
 ## UNVERIFIED
 
@@ -247,18 +267,16 @@ Marked in code with `// UNVERIFIED:`, plus what reading couldn't settle:
 1. `be_browser_window.mm` `OnWindowCloseRequested()`: re-arming `MakeCloseSynchronous` on every
    close (Webium re-arms only when refused) so the second `Close()` reaches
    `UnloadController::OnWindowCloseComplete()`.
-2. `be_browser_window.mm` `OnWidgetShowStateChanged()`: that NativeWidgetMac reports fullscreen
-   transitions through `WidgetObserver::OnWidgetShowStateChanged()`.
-3. `be_engine.mm` `DidEndMainMessageLoop()`: the last used profile stands in for
+2. `be_engine.mm` `DidEndMainMessageLoop()`: the last used profile stands in for
    AppController's last active profile.
-4. Hit-testing and window dragging with the app's NSView covering `BridgedContentView` under
+3. Hit-testing and window dragging with the app's NSView covering `BridgedContentView` under
    a transparent title bar (`kBrowser` window class): the app's bar must say where the window
    can be dragged (`mouseDownCanMoveWindow` / `_opaqueRectForWindowMoveWhenInTitlebar`).
-5. VoiceOver: `BrowserCrApplication` turns on Chrome's accessibility when VoiceOver or other
+4. VoiceOver: `BrowserCrApplication` turns on Chrome's accessibility when VoiceOver or other
    assistive technology asks (`accessibilitySetValue:forAttribute:`, VoiceOver KVO,
    `kSonomaAccessibilityActivationRefinements`); the app's NSApplication doesn't. Pages may
    stay inaccessible until the app does the same.
-6. The pending `openURLs:` flush runs from a task posted in `PreCreateThreads()`, assumed to
+5. The pending `openURLs:` flush runs from a task posted in `PreCreateThreads()`, assumed to
    run after startup's windows exist (the main loop starts after `PreMainMessageLoopRun`).
 
 ## Open questions
@@ -278,8 +296,10 @@ Marked in code with `// UNVERIFIED:`, plus what reading couldn't settle:
 
 1. Signatures copied from Webium are trusted where Webium compiles at M156
    (`NativeWidgetMac` overrides, `FindBarOwner`, `ExclusiveAccessContext`); the rest were read
-   from M156 headers, but ObjC++ details (raw_ptr arguments in message sends, blocks in
-   `base::BindOnce`, `__weak` in C++ classes) only a compiler settles.
+   from M156 headers. A second reading, file by file, checked every override and API against
+   the 156 sources. It also ran the Objective-C++ files through Apple clang with ARC, against
+   stand-in headers that copy the 156 signatures. Both found no errors. Only Chromium's own
+   clang, on the real headers, settles it.
 2. GN: every dep label was checked to exist at the tag; visibility lists were checked for
    the ones that have them. Undeclared includes (`// nogncheck`) only matter to `gn check`,
    which the build doesn't run.

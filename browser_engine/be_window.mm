@@ -9,6 +9,7 @@
 #import "browser_engine/be_tab.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/tab_list/tab_removed_reason.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
@@ -61,11 +62,6 @@ int CommandIdForCommand(BECommand command) {
       return IDC_FIND_PREVIOUS;
   }
   return -1;
-}
-
-bool IsDeletion(TabRemovedReason reason) {
-  return reason == TabRemovedReason::kDeleted ||
-         reason == TabRemovedReason::kDeletedAndExpandSidePanel;
 }
 
 }  // namespace
@@ -124,7 +120,7 @@ bool IsDeletion(TabRemovedReason reason) {
         [delegate window:self
             didRemoveTab:[BEChromiumTab tabForTab:removed.tab.get()]
                  atIndex:removed.index];
-        if (IsDeletion(removed.remove_reason)) {
+        if (TabRemoveReasonUtils::WillDeleteTab(removed.remove_reason)) {
           [BEChromiumTab forgetTab:removed.tab.get()];
         }
       }

@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "base/check.h"
+#include "base/check_op.h"
 #include "base/functional/bind.h"
 #include "base/notimplemented.h"
 #include "browser_engine/be_browser_window_parts.h"
@@ -609,26 +610,36 @@ content::KeyboardEventProcessingResult BEBrowserWindow::PreHandleKeyboardEvent(
     return content::KeyboardEventProcessingResult::NOT_HANDLED;
   }
 
-  // Reserved shortcuts (⌘W, ⌘T, ⌘N...) run now, before the page sees them.
-  if (accelerator_manager_.Process(accelerator)) {
-    return content::KeyboardEventProcessingResult::HANDLED;
+  // As BrowserView: a reserved shortcut runs now, before the page sees it.
+  // On the Mac the reserved ones (⌘W, ⌘T...) are the app's menu items, so the
+  // table's own (F12, F7, Esc) go to the page first and come back to
+  // HandleKeyboardEvent() if it doesn't take them.
+  if (chrome::BrowserCommandController::From(browser_)->IsReservedCommandOrKey(
+          command_id, event)) {
+    return accelerator_manager_.Process(accelerator)
+               ? content::KeyboardEventProcessingResult::HANDLED
+               : content::KeyboardEventProcessingResult::NOT_HANDLED;
   }
-
-  // A non-reserved browser shortcut (such as ⌘F): the page goes first.
   return content::KeyboardEventProcessingResult::NOT_HANDLED_IS_SHORTCUT;
 }
 
 bool BEBrowserWindow::HandleKeyboardEvent(
     const input::NativeWebKeyboardEvent& event) {
-  if (!ShouldHandleKeyboardEvent(event)) {
-    return false;
-  }
-  // On the Mac, shortcuts belong to the main menu, which is the app's: send
-  // the key the page didn't take back through AppKit so the app's menu items
-  // catch their key equivalents (as Webium and BrowserView do).
-  if (views::NativeWidgetMacNSWindowHost::GetFromNativeWindow(GetNativeWindow())
-          ->RedispatchKeyEvent(event.os_event.Get())) {
-    return true;
+  if (ShouldHandleKeyboardEvent(event)) {
+    // On the Mac, shortcuts belong to the main menu, which is the app's: send
+    // the key the page didn't take back through AppKit so the app's menu
+    // items catch their key equivalents (as Webium and BrowserView do).
+    if (views::NativeWidgetMacNSWindowHost::GetFromNativeWindow(
+            GetNativeWindow())
+            ->RedispatchKeyEvent(event.os_event.Get())) {
+      return true;
+    }
+    // Then Chrome's own shortcuts the page left (see
+    // PreHandleKeyboardEvent()).
+    if (accelerator_manager_.Process(
+            ui::GetAcceleratorFromNativeWebKeyboardEvent(event))) {
+      return true;
+    }
   }
   // Then accelerators registered with the widget's FocusManager (extension
   // commands), as BrowserView::HandleKeyboardEvent() does.
@@ -905,9 +916,9 @@ void BEBrowserWindow::OnWidgetBoundsChanged(views::Widget* widget,
 void BEBrowserWindow::OnWidgetShowStateChanged(views::Widget* widget) {
   // The window's own fullscreen button (or ⌃⌘F from the app's menu through
   // AppKit) changes the state without Chrome asking; tell Chrome as
-  // BrowserView does, once.
-  // UNVERIFIED: that NativeWidgetMac reports fullscreen transitions through
-  // WidgetObserver::OnWidgetShowStateChanged() at M156.
+  // BrowserView does, once. NativeWidgetMac reports the end of every
+  // fullscreen transition here (native_widget_mac_ns_window_host.mm,
+  // OnWindowFullscreenTransitionComplete()).
   const bool fullscreen = widget_->IsFullscreen();
   if (fullscreen == fullscreen_) {
     return;

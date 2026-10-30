@@ -43,6 +43,7 @@ source_set("browser_engine") {
     "//chrome/app:command_ids",
     "//chrome/browser",
     "//chrome/browser/ssl",
+    "//chrome/browser/tab_list",
     "//chrome/browser/ui",
     "//chrome/browser/ui/cocoa",
     "//chrome/browser/ui/tabs:tab_strip",

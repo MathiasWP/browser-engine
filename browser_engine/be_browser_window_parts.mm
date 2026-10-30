@@ -23,6 +23,8 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/gfx/native_ui_util.h"
+#include "ui/views/bubble/bubble_anchor.h"
+#include "ui/views/bubble/bubble_border.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/client_view.h"
 
@@ -82,11 +84,18 @@ LocationBarModel* BELocationBar::GetLocationBarModel() {
 
 std::optional<bubble_anchor_util::AnchorConfiguration>
 BELocationBar::GetChipAnchor() {
-  return std::nullopt;  // No chip (see the class comment).
+  // Never empty: GetPageInfoAnchorConfiguration() (bubble_anchor_util_views.cc)
+  // takes this for location-bar-anchored bubbles (permission prompts, page
+  // info, choosers) and otherwise dereferences the BrowserView we don't have.
+  // A null anchor crashes too (GetPageInfoAnchorRect()), so the bubbles float
+  // centered over the window until the app tells us where its field is.
+  return bubble_anchor_util::AnchorConfiguration{
+      views::BubbleAnchor(window_->widget()->client_view()), std::nullopt,
+      views::BubbleBorder::FLOAT};
 }
 
 ChipController* BELocationBar::GetChipController() {
-  return nullptr;  // Only asked when IsDrawn(); see the class comment.
+  return nullptr;  // Null-checked on the bubble path; see the class comment.
 }
 
 void BELocationBar::AnnounceAlert(const std::u16string& announcement) {
