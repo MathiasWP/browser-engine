@@ -1,0 +1,28 @@
+# browser_engine touch point: EmbedderBrowserWindowFeatures is Chrome's hook for
+# embedders. At its InitPostWindowConstruction() the Browser and its window are
+# complete and have no tabs yet: the moment to hand the window to the app
+# (engineDidCreateWindow:), synchronously, before Show() and the first tab.
+
+diff --git a/chrome/browser/ui/browser_window/internal/embedder_browser_window_features.cc b/chrome/browser/ui/browser_window/internal/embedder_browser_window_features.cc
+--- a/chrome/browser/ui/browser_window/internal/embedder_browser_window_features.cc
++++ b/chrome/browser/ui/browser_window/internal/embedder_browser_window_features.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "chrome/browser/ui/browser_window/public/embedder_browser_window_features.h"
+ 
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+ #include "chrome/browser/ui/views/frame/browser_view.h"
+ 
+@@ -26,7 +27,10 @@ void EmbedderBrowserWindowFeatures::Init(BrowserWindowInterface* browser) {
+ 
+ void EmbedderBrowserWindowFeatures::InitPostWindowConstruction(
+     BrowserWindowInterface* browser) {
+-  // Embedder implementation goes here.
++  // browser_engine: the window is complete; the app gets it now.
++  if (browser_engine::IsEmbedded()) {
++    browser_engine::GetHooks()->BrowserWindowInitialized(browser);
++  }
+ }
+ 
+ void EmbedderBrowserWindowFeatures::InitPostBrowserViewConstruction(

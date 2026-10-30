@@ -1,0 +1,80 @@
+name: Build the embedding layer on a dev base
+
+# One iteration on //browser_engine: take the finished build state of a dev
+# build (build.yml, flavor dev), put this commit's browser_engine/ and
+# patches/browser_engine/ into it, rebuild what changed and publish the engine
+# (Chromium.app with our framework, BEEngine.h, engine.json) as `engine_x86_64`.
+# See browser_engine/README.md.
+
+defaults:
+  run:
+    shell: bash
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_run_id:
+        description: "ID of a finished build.yml run with flavor dev (its github_build_artifact_x86_64 is the base)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  # To download the base's artifact from another run.
+  actions: read
+
+concurrency:
+  group: iterate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  iterate:
+    name: Build the engine on dev base ${{ inputs.base_run_id }}
+    # As build.yml: GitHub's free Intel runners, Xcode 26.5.
+    runs-on: macos-26-intel
+    timeout-minutes: 360
+    env:
+      BE_BASE_RUN_ID: ${{ inputs.base_run_id }}
+    steps:
+      # The same setup as building.yml's resuming build jobs.
+      - name: Clone repository
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Cleanup Android Related Stuff
+        run: sudo rm -rf $ANDROID_HOME
+      - name: Copy GitHub specific scripts to git-root folder
+        run: cp -va ./.github/scripts/ ./
+      - name: Prepare Xcode
+        run: ./github_prepare_xcode.sh
+      - name: Disable spotlight
+        run: sudo mdutil -a -i off
+      - name: Download the dev base
+        uses: actions/download-artifact@v8
+        with:
+          name: github_build_artifact_x86_64
+          run-id: ${{ inputs.base_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Environment and Toolchain
+        run: ./github_setup_env_toolchain.sh x86_64 | tee -a github_actions_setup_env_toolchain.log
+      - name: Unpack archive of build
+        run: ./github_unpack_archive.sh
+      - name: Apply the embedding layer and build
+        run: ./github_iterate.sh build x86_64 2>&1 | tee -a github_actions_iterate_x86_64.log
+      - name: Package the engine
+        run: ./github_iterate.sh package x86_64 2>&1 | tee -a github_actions_iterate_x86_64.log
+      - name: Upload the engine
+        uses: actions/upload-artifact@v7
+        with:
+          name: engine_x86_64
+          path: upload_engine/
+          # Chromium.app.zip is compressed already.
+          compression-level: 0
+          if-no-files-found: error
+      - name: Upload logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: iterate_logs_x86_64
+          path: ./*.log
+          if-no-files-found: ignore

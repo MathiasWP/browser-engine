@@ -1,0 +1,32 @@
+# browser_engine touch point: Chrome's window factory makes our BrowserWindow
+# when Chromium runs inside the app. Placed before Webium's arm so it wins even
+# with --enable-features=Webium. The hook returns null for browser types we
+# leave to Chrome's Views windows (everything but TYPE_NORMAL, for now).
+
+diff --git a/chrome/browser/ui/views/frame/browser_window_factory.cc b/chrome/browser/ui/views/frame/browser_window_factory.cc
+--- a/chrome/browser/ui/views/frame/browser_window_factory.cc
++++ b/chrome/browser/ui/views/frame/browser_window_factory.cc
+@@ -4,6 +4,7 @@
+ 
+ #include <memory>
+ 
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "build/build_config.h"
+ #include "chrome/browser/ui/browser_window_deleter.h"
+ #include "chrome/browser/ui/fullscreen/browser_window_fullscreen_controller.h"
+@@ -32,6 +33,15 @@ std::unique_ptr<BrowserWindow, BrowserWindowDeleter>
+ BrowserWindow::CreateBrowserWindow(BrowserWindowInterface* browser,
+                                    bool user_gesture,
+                                    bool in_tab_dragging) {
++  // browser_engine: inside our app, our window (null for types it leaves to
++  // Chrome's Views windows).
++  if (browser_engine::IsEmbedded()) {
++    if (BrowserWindow* window =
++            browser_engine::GetHooks()->CreateBrowserWindow(browser)) {
++      return std::unique_ptr<BrowserWindow, BrowserWindowDeleter>(window);
++    }
++  }
++
+   if (webui_browser::IsWebUIBrowserEnabled() &&
+       browser->GetType() == BrowserWindowInterface::Type::TYPE_NORMAL) {
+     return std::unique_ptr<BrowserWindow, BrowserWindowDeleter>(

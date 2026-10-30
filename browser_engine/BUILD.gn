@@ -1,0 +1,75 @@
+# The embedding layer: Chromium as an engine our Swift app runs in its own
+# process. Copied into the Chromium tree as //browser_engine by the build job
+# (see .github/scripts/github_iterate.sh) and linked into the Chromium
+# Framework through //chrome:chrome_dll (patches/browser_engine/).
+
+assert(is_mac, "//browser_engine is the macOS embedding layer")
+
+# The only part of the layer Chromium's own files include (from the one-line
+# touch points in patches/browser_engine/). It depends on nothing in //chrome,
+# so any Chromium target can use it without a dependency cycle, and editing the
+# layer never recompiles a Chromium file. The patched files include it with
+# `// nogncheck`, so they don't need a GN dependency on it either.
+source_set("hooks") {
+  sources = [
+    "browser_engine_hooks.cc",
+    "browser_engine_hooks.h",
+  ]
+  deps = [ "//base" ]
+}
+
+source_set("browser_engine") {
+  sources = [
+    "be_browser_window.h",
+    "be_browser_window.mm",
+    "be_browser_window_parts.h",
+    "be_browser_window_parts.mm",
+    "be_engine.h",
+    "be_engine.mm",
+    "be_tab.h",
+    "be_tab.mm",
+    "be_window.h",
+    "be_window.mm",
+    "public/BEEngine.h",
+  ]
+
+  public_deps = [ ":hooks" ]
+
+  # Broad on purpose: the layer sits on top of Chrome's browser layer and is
+  # only ever linked into the framework. //chrome/browser and
+  # //chrome/browser/ui have no visibility lists at M156.
+  deps = [
+    "//base",
+    "//chrome/app:command_ids",
+    "//chrome/browser",
+    "//chrome/browser/ssl",
+    "//chrome/browser/ui",
+    "//chrome/browser/ui/cocoa",
+    "//chrome/browser/ui/tabs:tab_strip",
+    "//chrome/common",
+    "//components/favicon/content",
+    "//components/favicon/core",
+    "//components/input",
+    "//components/keep_alive_registry",
+    "//components/remote_cocoa/app_shim",
+    "//components/security_state/core",
+    "//components/strings",
+    "//components/tabs:public",
+    "//components/version_info",
+    "//components/web_modal",
+    "//content/public/browser",
+    "//net",
+    "//ui/base",
+    "//ui/base/emoji",
+    "//ui/content_accelerators",
+    "//ui/gfx",
+    "//ui/views",
+    "//ui/views/controls/webview",
+    "//url",
+  ]
+
+  frameworks = [
+    "AppKit.framework",
+    "Foundation.framework",
+  ]
+}

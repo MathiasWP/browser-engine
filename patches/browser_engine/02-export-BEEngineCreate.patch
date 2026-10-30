@@ -1,0 +1,14 @@
+# browser_engine touch point: keep _BEEngineCreate visible in the framework.
+# framework.exports is the -exported_symbols_list of chrome_dll/chrome_framework;
+# every other global is made private at link time.
+
+diff --git a/chrome/app/framework.exports b/chrome/app/framework.exports
+--- a/chrome/app/framework.exports
++++ b/chrome/app/framework.exports
+@@ -19,3 +19,6 @@
+ _ChromeAppModeStart_v8
+ _ChromeMain
+ _ChromeWebAppShortcutCopierMain
++
++# browser_engine: the embedding layer's one entry point (browser_engine/public/BEEngine.h).
++_BEEngineCreate

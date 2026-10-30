@@ -1,0 +1,27 @@
+# browser_engine touch point: no SadTabHelper inside the app, the gate Webium
+# uses. Its SadTabController looks up a BrowserView for the crashed tab
+# (sad_tab_controller.cc, FindContentsWebView(): DCHECK then dereference). The
+# app shows its own crash view from BETab.isCrashed.
+
+diff --git a/chrome/browser/ui/tabs/tab_features.cc b/chrome/browser/ui/tabs/tab_features.cc
+--- a/chrome/browser/ui/tabs/tab_features.cc
++++ b/chrome/browser/ui/tabs/tab_features.cc
+@@ -11,6 +11,7 @@
+ #include "base/memory/ptr_util.h"
+ #include "base/no_destructor.h"
+ #include "base/task/sequenced_task_runner.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "chrome/browser/actor/actor_keyed_service.h"
+ #include "chrome/browser/actor/actor_tab_data.h"
+ #include "chrome/browser/actor/ui/actor_ui_tab_controller.h"
+@@ -638,7 +639,9 @@ void TabFeatures::Init(TabInterface& tab, Profile* profile) {
+             tab, tab, tab.GetContents());
+   }
+ 
+-  if (!webui_browser::IsWebUIBrowserEnabled()) {
++  // browser_engine: the app shows its own crashed-page view (BETab.isCrashed).
++  if (!webui_browser::IsWebUIBrowserEnabled() &&
++      !browser_engine::IsEmbedded()) {
+     sad_tab_helper_ = GetUserDataFactory().CreateInstance<SadTabHelper>(
+         tab, tab, tab.GetContents());
+   }

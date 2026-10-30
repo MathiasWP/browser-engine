@@ -1,0 +1,16 @@
+# browser_engine touch point: link //browser_engine into the Chromium Framework.
+# The macOS chrome_dll source set is what chrome_framework links; one dep line.
+# Changing chrome/BUILD.gn regenerates the ninja files (about a minute) but
+# recompiles nothing else.
+
+diff --git a/chrome/BUILD.gn b/chrome/BUILD.gn
+--- a/chrome/BUILD.gn
++++ b/chrome/BUILD.gn
+@@ -1320,6 +1320,7 @@ if (is_win) {
+ 
+     deps = [
+       ":dependencies",
++      "//browser_engine",  # browser_engine: our embedding layer.
+       "//build:chromeos_buildflags",
+       "//chrome/app:command_ids",
+       "//chrome/browser:chrome_browser_application_mac",

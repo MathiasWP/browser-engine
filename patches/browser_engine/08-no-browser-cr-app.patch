@@ -1,0 +1,28 @@
+# browser_engine touch point: inside the app, NSApp already exists and is the
+# app's own NSApplication (adopting CrAppProtocol/CrAppControlProtocol).
+# RegisterBrowserCrApp() would CHECK that NSApp is a BrowserCrApplication.
+
+diff --git a/chrome/app/chrome_main_delegate.cc b/chrome/app/chrome_main_delegate.cc
+--- a/chrome/app/chrome_main_delegate.cc
++++ b/chrome/app/chrome_main_delegate.cc
+@@ -208,6 +208,7 @@
+ #endif  // BUILDFLAG(IS_WIN)
+ 
+ #if BUILDFLAG(IS_MAC)
++#include "browser_engine/browser_engine_hooks.h"
+ #include "chrome/browser/chrome_browser_application_mac.h"  // nogncheck
+ #include "chrome/browser/shell_integration.h"  // nogncheck
+ #endif  // BUILDFLAG(IS_MAC)
+@@ -1936,7 +1937,11 @@ std::optional<int> ChromeMainDelegate::PreBrowserMain() {
+   // CFRunLoop.
+ 
+   // Initialize NSApplication using the custom subclass.
+-  chrome_browser_application_mac::RegisterBrowserCrApp();
++  // browser_engine: not inside our app, whose NSApp already exists (and
++  // adopts CrAppControlProtocol); RegisterBrowserCrApp() would CHECK.
++  if (!browser_engine::IsEmbedded()) {
++    chrome_browser_application_mac::RegisterBrowserCrApp();
++  }
+ 
+   if (l10n_util::GetLocaleOverride().empty()) {
+     // The browser process only wants to support the language Cocoa will use,

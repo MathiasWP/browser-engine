@@ -1,0 +1,31 @@
+# browser_engine touch point: the one BrowserWindowFeatures arm our window
+# needs, next to Webium's. Without a FocusManager, InitPostWindowConstruction()
+# makes no ExtensionKeybindingRegistryViews, so extension shortcuts wouldn't
+# register. The other Webium arms (find bar owner, exclusive-access context,
+# BrowserElements) are covered from our window itself; see browser_engine/README.md.
+
+diff --git a/chrome/browser/ui/browser_window/internal/browser_window_features.cc b/chrome/browser/ui/browser_window/internal/browser_window_features.cc
+--- a/chrome/browser/ui/browser_window/internal/browser_window_features.cc
++++ b/chrome/browser/ui/browser_window/internal/browser_window_features.cc
+@@ -12,6 +12,7 @@
+ #include "base/memory/ptr_util.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/no_destructor.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "chrome/browser/actor/ui/actor_border_view_controller.h"
+ #include "chrome/browser/actor/ui/actor_ui_window_controller.h"
+ #include "chrome/browser/autocomplete/aim_eligibility_service_factory.h"
+@@ -697,6 +698,13 @@ void BrowserWindowFeatures::InitPostWindowConstruction(
+     focus_manager = browser_view->GetFocusManager();
+   } else if (webui_browser_window) {
+     focus_manager = webui_browser_window->widget()->GetFocusManager();
++  } else if (browser_engine::IsEmbedded()) {
++    // browser_engine: our window's widget, so extension shortcuts register
++    // with it.
++    if (views::Widget* widget =
++            browser_engine::GetHooks()->GetWidgetForBrowser(browser)) {
++      focus_manager = widget->GetFocusManager();
++    }
+   }
+ 
+   // ---------------------------------------------------------------------------
