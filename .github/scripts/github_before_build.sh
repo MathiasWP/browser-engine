@@ -3,6 +3,8 @@
 # Simple script for getting ready to build Ungoogled-Chromium macOS binaries on GitHub Actions
 
 _target_cpu="$1"
+# release: optimised for daily use. dev: quick to rebuild, the base for developing the embedding layer.
+_flavor="${2:-release}"
 
 # Some path variables
 _root_dir="$(dirname "$(greadlink -f "$0")")"
@@ -20,6 +22,14 @@ fi
 
 cp "$_main_repo/flags.gn" "$_src_dir/out/Default/args.gn"
 cat "$_root_dir/flags.macos.gn" >> "$_src_dir/out/Default/args.gn"
+# Later assignments win, so the dev flags override the release ones above.
+if [[ $_flavor == "dev" ]]; then
+  cat "$_root_dir/flags.macos.dev.gn" >> "$_src_dir/out/Default/args.gn"
+  echo "chrome" > "$_src_dir/out/Default/build_targets.txt"
+else
+  echo "chrome chromedriver" > "$_src_dir/out/Default/build_targets.txt"
+fi
+echo "$_flavor" > "$_src_dir/out/Default/build_flavor.txt"
 
 cd "$_src_dir"
 

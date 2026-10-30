@@ -1,6 +1,12 @@
 name: Build macOS binaries of Ungoogled Chromium
 on:
   workflow_dispatch:
+    inputs:
+      flavor:
+        description: "release: optimised (ThinLTO, PGO) for daily use. dev: quick to rebuild, the base for developing the embedding layer."
+        type: choice
+        options: [release, dev]
+        default: release
   push:
     tags:
       - '**'
@@ -18,8 +24,10 @@ jobs:
     secrets: inherit
     with:
       arch: ${{ matrix.arch }}
-      # GitHub's free Intel runners (free and unlimited for public repositories).
-      os: macos-15-intel
+      # GitHub's free Intel runners (free and unlimited for public repositories). macOS 26 has the
+      # Xcode upstream builds with (26.5); the macOS 15 image stops at 26.3.
+      os: macos-26-intel
+      flavor: ${{ inputs.flavor || 'release' }}
 
   release:
     needs: build

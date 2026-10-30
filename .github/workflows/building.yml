@@ -13,6 +13,11 @@ on:
       os:
         required: true
         type: string
+      flavor:
+        description: "release or dev; see build.yml"
+        required: false
+        type: string
+        default: release
 
 env:
   MACOS_CERTIFICATE: ${{ secrets.PROD_MACOS_CERTIFICATE }}
@@ -90,7 +95,7 @@ jobs:
       - name: List resources
         run: ls -la
       - name: Prepare for building
-        run: ./github_before_build.sh ${{ inputs.arch }} | tee -a github_actions_build_${{ inputs.arch }}.log
+        run: ./github_before_build.sh ${{ inputs.arch }} ${{ inputs.flavor }} | tee -a github_actions_build_${{ inputs.arch }}.log
       - name: Build
         id: build
         run: ./github_build.sh ${{ inputs.arch }} 2>&1 | tee -a github_actions_build_${{ inputs.arch }}.log
@@ -102,6 +107,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -164,6 +170,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -226,6 +233,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -288,6 +296,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -350,6 +359,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -412,6 +422,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -474,6 +485,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -536,6 +548,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -598,6 +611,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -660,6 +674,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -722,6 +737,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -784,6 +800,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -846,6 +863,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -908,6 +926,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -970,6 +989,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -1032,6 +1052,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -1094,6 +1115,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -1156,6 +1178,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -1218,6 +1241,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7
@@ -1280,6 +1304,7 @@ jobs:
         with:
           name: github_build_artifact_${{ inputs.arch }}
           path: upload_part_build/
+          compression-level: 0
           overwrite: true
       - name: Upload logs
         uses: actions/upload-artifact@v7

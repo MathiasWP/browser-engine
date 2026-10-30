@@ -21,7 +21,10 @@ echo "status=running" >> $GITHUB_OUTPUT
 
 set +e
 
-timeout -k 7m -s SIGTERM ${_remaining_time:-19680}s ninja -C out/Default chrome chromedriver # 328 m as default $_remaining_time
+# Chosen by the flavor in github_before_build.sh; the file travels with the build state.
+_targets="$(cat out/Default/build_targets.txt 2>/dev/null || echo "chrome chromedriver")"
+
+timeout -k 7m -s SIGTERM ${_remaining_time:-19680}s ninja -C out/Default $_targets # 328 m as default $_remaining_time
 
 _error_code="${?}"
 if [[ "$_error_code" -eq 124 ]]; then

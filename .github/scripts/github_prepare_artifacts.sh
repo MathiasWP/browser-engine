@@ -17,7 +17,10 @@ if [[ -f "$_root_dir/build_finished_$_target_cpu.log" ]] ; then
   _ungoogled_revision="$(cat "$_root_dir/ungoogled-chromium/revision.txt")"
   _package_revision="$(cat "$_root_dir/revision.txt")"
 
-  _file_name="ungoogled-chromium_${_chromium_version}-${_ungoogled_revision}.${_package_revision}_${_target_cpu}-macos.dmg"
+  _flavor="$(cat "$_src_dir/out/Default/build_flavor.txt" 2>/dev/null || echo release)"
+  _flavor_suffix=""
+  [[ "$_flavor" == "release" ]] || _flavor_suffix="-$_flavor"
+  _file_name="ungoogled-chromium_${_chromium_version}-${_ungoogled_revision}.${_package_revision}_${_target_cpu}${_flavor_suffix}-macos.dmg"
   _hash_name="${_file_name}.hashes.md"
 
   cd "$_src_dir"
@@ -61,7 +64,8 @@ fi
 gsync --file-system "$_src_dir"
 
 # Needs to be compressed to stay below GitHub's upload limit 2 GB (?!) 2020-11-24; used to be  5-8GB (?)
-tar -C build -c -f - src | zstd -vv -11 -T0 -o build_src.tar.zst
+# Level 3: packing at 11 took 14-31 min per job on the 4-core runners for about a fifth less size.
+tar -C build -c -f - src | zstd -vv -3 -T0 -o build_src.tar.zst
 
 sha256sum ./build_src.tar.zst | tee ./sums.txt
 

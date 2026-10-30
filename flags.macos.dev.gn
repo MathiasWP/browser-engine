@@ -1,0 +1,10 @@
+# The dev flavor: a build that's quick to rebuild after a change, for developing the embedding
+# layer. Appended after flags.macos.gn, so these win. Not for daily use: no ThinLTO or PGO (pages
+# run a little slower) and no symbols.
+is_official_build=false
+use_thin_lto=false
+chrome_pgo_phase=0
+symbol_level=0
+blink_symbol_level=0
+dcheck_always_on=false
+enable_dsyms=false

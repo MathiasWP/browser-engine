@@ -14,7 +14,7 @@ TARGET_XCODE_VERSION="$(readlink -f "$BASE_XCODE_PATH" | xargs basename | sed 's
 
 ls -l /Applications | grep Xcode
 
-sudo rm -rf /Applications/Xcode_!("$TARGET_XCODE_VERSION").app
+# Other Xcodes stay: deleting them took 5-9 min per job, and the runners have disk to spare.
 if [ ! -e /Applications/Xcode_26.app ]; then
   # try to keep paths consistent between jobs.
   sudo mv "/Applications/Xcode_$TARGET_XCODE_VERSION.app" /Applications/Xcode_26.app
