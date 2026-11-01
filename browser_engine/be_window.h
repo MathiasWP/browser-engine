@@ -37,6 +37,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)activeTabDidChange;
 // Chrome wants the address field focused.
 - (void)wantsLocationFocus;
+// Chrome's fullscreen state changed, a page's or the window's. On a later
+// task, tells the delegate windowDidChangePageFullscreen: if isPageFullscreen
+// is no longer what it last heard.
+- (void)fullscreenStateDidChange;
 // The window is going: tells the delegate, then forgets the C++ window. Every
 // method is a no-op afterwards.
 - (void)browserWindowWillClose;

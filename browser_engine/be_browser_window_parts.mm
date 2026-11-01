@@ -223,7 +223,10 @@ void BEExclusiveAccessContext::EnterFullscreen(
   if (IsFullscreen() && display_id == display::kInvalidDisplayId) {
     return;
   }
-  window_->ProcessFullscreen(true);
+  // A valid `display_id` is the screen a page asked for (with the Window
+  // Management permission), or the user's fullscreen going back to its own
+  // screen after a page's.
+  window_->ProcessFullscreen(true, display_id);
 }
 
 void BEExclusiveAccessContext::ExitFullscreen() {
@@ -234,7 +237,7 @@ void BEExclusiveAccessContext::ExitFullscreen() {
   if (!IsFullscreen()) {
     return;
   }
-  window_->ProcessFullscreen(false);
+  window_->ProcessFullscreen(false, display::kInvalidDisplayId);
 }
 
 void BEExclusiveAccessContext::UpdateExclusiveAccessBubble(

@@ -8,7 +8,7 @@ in its place is `BEBrowserWindow`, Chrome's third production `BrowserWindow` aft
 `BrowserView` and Webium's `WebUIBrowserWindow`, whose shape it follows at M156.
 
 The app and the engine meet only in `public/BEEngine.h` (a verbatim copy of the app's
-`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 4). The framework exports
+`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 5). The framework exports
 one function, `BEEngineCreate`.
 
 First draft, 30 Oct 2026, against Chromium 156.0.8078.47. Nothing here has been compiled
@@ -264,7 +264,9 @@ Found while reading, not switchable (guard patches when they bite):
 Real: widget/NSWindow creation and placement saving, show/hide/activate/close (with
 beforeunload through `UnloadController`), bounds, maximize/minimize/restore, fullscreen
 (`ProcessFullscreen` → `FullscreenController::WindowFullscreenStateChanged`, also for the
-window's own fullscreen button), z-order, flash, workspaces, active-state
+window's own fullscreen button, onto the screen a page asks for), page fullscreen reported to the
+app (`FullscreenController::RegisterOnFullscreenStateChanged` → `windowDidChangePageFullscreen:`,
+so its bar steps aside), z-order, flash, workspaces, active-state
 (`BrowserActiveStateManager::DidBecomeActive/Inactive` from paint-as-active and `Show()`),
 theme/color/native theme, contents size get/set, location-bar focus requests,
 toolbar/title/reload/security updates → `tabDidUpdate:`, keyboard pre-handling and Mac

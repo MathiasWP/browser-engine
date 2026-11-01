@@ -5,8 +5,10 @@
 #include <memory>
 
 #include "base/check.h"
+#include "base/functional/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/sys_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "browser_engine/be_autocomplete.h"
 #include "browser_engine/be_browser_window.h"
 #import "browser_engine/be_engine.h"
@@ -118,6 +120,8 @@ int CommandIdForCommand(BECommand command) {
   // The address bar's suggestions: made for the first one, destroyed with the
   // window.
   std::unique_ptr<browser_engine::BEAutocomplete> _autocomplete;
+  // isPageFullscreen as the delegate last heard it.
+  BOOL _pageFullscreen;
 }
 
 @synthesize delegate = _delegate;
@@ -139,6 +143,20 @@ int CommandIdForCommand(BECommand command) {
 - (TabStripModel*)tabStripModel {
   BrowserWindowInterface* browser = [self browser];
   return browser ? browser->GetTabStripModel() : nullptr;
+}
+
+// Tells the delegate if isPageFullscreen changed since it last heard.
+- (void)sendPageFullscreenIfChanged {
+  // Nothing after windowWillClose:.
+  if (!_window) {
+    return;
+  }
+  const BOOL pageFullscreen = [self isPageFullscreen];
+  if (pageFullscreen == _pageFullscreen) {
+    return;
+  }
+  _pageFullscreen = pageFullscreen;
+  [_delegate windowDidChangePageFullscreen:self];
 }
 
 // MARK: Called by BEBrowserWindow
@@ -213,6 +231,18 @@ int CommandIdForCommand(BECommand command) {
   [_delegate windowWantsLocationFocus:self];
 }
 
+- (void)fullscreenStateDidChange {
+  // Chrome calls this while its FullscreenController notifies (from a task it
+  // posted). Look again on a task of our own, so the app never runs inside
+  // Chrome's fullscreen code, and tell it only of a real change: in and
+  // straight back out is none.
+  __weak BEChromiumWindow* weakSelf = self;
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(^{
+        [weakSelf sendPageFullscreenIfChanged];
+      }));
+}
+
 - (void)browserWindowWillClose {
   if (!_window) {
     return;
@@ -269,6 +299,10 @@ int CommandIdForCommand(BECommand command) {
     return -1;
   }
   return model->active_index();
+}
+
+- (BOOL)isPageFullscreen {
+  return _window && _window->IsPageFullscreen();
 }
 
 - (void)runCommand:(BECommand)command {

@@ -15,7 +15,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 4
+#define BE_API_VERSION 5
 
 @protocol BEWindow;
 @protocol BETab;
@@ -232,6 +232,8 @@ NS_SWIFT_UI_ACTOR
 - (void)window:(id<BEWindow>)window didUpdateSuggestions:(NSArray<id<BESuggestion>> *)suggestions;
 /// The window is closing; the app lets go of it and its views.
 - (void)windowWillClose:(id<BEWindow>)window;
+/// A page took the whole window or gave it back: `isPageFullscreen` changed. (Version 5.)
+- (void)windowDidChangePageFullscreen:(id<BEWindow>)window;
 @end
 
 NS_SWIFT_UI_ACTOR
@@ -246,6 +248,9 @@ NS_SWIFT_UI_ACTOR
 @property (nonatomic, readonly, copy) NSArray<id<BETab>> *tabs;
 /// -1 while the window has no tabs.
 @property (nonatomic, readonly) NSInteger activeIndex;
+/// A page has the whole window (a video's full screen, `Element.requestFullscreen()`), so the app
+/// hides everything but the page. Escape or the page gives it back. (Chrome: tab fullscreen)
+@property (nonatomic, readonly) BOOL isPageFullscreen;
 
 - (void)runCommand:(BECommand)command;
 - (BOOL)canRunCommand:(BECommand)command;

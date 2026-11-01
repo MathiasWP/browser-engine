@@ -295,6 +295,9 @@ BEBrowserWindow::~BEBrowserWindow() {
   [objc_window_ browserWindowWillClose];
   objc_window_ = nil;
 
+  // Before the FullscreenController goes with the features below.
+  fullscreen_subscription_ = {};
+
   browser_->GetTabStripModel()->RemoveObserver(this);
 
   // As BrowserWidget and WebUIBrowserWindow do: window-dependent features go
@@ -341,6 +344,17 @@ void BEBrowserWindow::OnBrowserInitialized() {
     return;
   }
   objc_window_ = [[BEChromiumWindow alloc] initWithBrowserWindow:this];
+  // InitPostWindowConstruction made the ExclusiveAccessManager after us and
+  // before this hook. Its FullscreenController tells its subscribers about
+  // every change, from a posted task: a page entering or leaving fullscreen
+  // (with the window, or within the user's fullscreen) and the window's own.
+  if (ExclusiveAccessManager* manager =
+          ExclusiveAccessManager::From(browser_)) {
+    fullscreen_subscription_ =
+        manager->fullscreen_controller()->RegisterOnFullscreenStateChanged(
+            base::BindRepeating(&BEBrowserWindow::OnFullscreenStateChanged,
+                                base::Unretained(this)));
+  }
   // Synchronously, so the app can install its views before the window shows
   // and set the window's delegate before the first tab arrives.
   [objc_window_ announce];
@@ -372,12 +386,24 @@ gfx::Rect BEBrowserWindow::GetContentsBoundsInScreen() const {
   return widget_->GetClientAreaBoundsInScreen();
 }
 
-void BEBrowserWindow::ProcessFullscreen(bool fullscreen) {
-  widget_->SetFullscreen(fullscreen);
+void BEBrowserWindow::ProcessFullscreen(bool fullscreen, int64_t display_id) {
+  // AppKit's own fullscreen, in a Space of its own. As BrowserView's
+  // RequestFullscreen() on the Mac, the display goes along: the NSWindow's
+  // fullscreen controller moves the window to that screen first.
+  widget_->SetFullscreen(fullscreen, display_id);
   fullscreen_ = fullscreen;
   if (ExclusiveAccessManager* manager = ExclusiveAccessManager::From(browser_)) {
     manager->fullscreen_controller()->WindowFullscreenStateChanged();
   }
+}
+
+bool BEBrowserWindow::IsPageFullscreen() const {
+  // No manager before InitPostWindowConstruction or after the teardown. True
+  // from the page's request, before the window starts moving, until the page
+  // leaves (the FullscreenController's exclusive access tab).
+  ExclusiveAccessManager* manager = ExclusiveAccessManager::From(browser_);
+  return manager &&
+         manager->fullscreen_controller()->IsWindowFullscreenForTabOrPending();
 }
 
 void BEBrowserWindow::RequestLocationFocus() {
@@ -559,7 +585,10 @@ bool BEBrowserWindow::IsToolbarVisible() const {
 }
 
 bool BEBrowserWindow::IsToolbarShowing() const {
-  return !IsFullscreen();
+  // The app hides its bar only for a page's fullscreen. In the user's own, on
+  // the Mac, this keeps Chrome's reserved shortcuts ahead of the page
+  // (BrowserCommandController::IsReservedCommandOrKey()).
+  return !IsPageFullscreen();
 }
 
 bool BEBrowserWindow::IsLocationBarVisible() const {
@@ -1004,6 +1033,12 @@ void BEBrowserWindow::PaintAsActiveChanged() {
   } else {
     BrowserActiveStateManager::From(browser_)->DidBecomeInactive();
   }
+}
+
+void BEBrowserWindow::OnFullscreenStateChanged() {
+  // Also for changes that leave isPageFullscreen as it was (the user's own
+  // fullscreen); BEChromiumWindow looks and tells the app only of real ones.
+  [objc_window_ fullscreenStateDidChange];
 }
 
 void BEBrowserWindow::OnWindowCloseRequested(

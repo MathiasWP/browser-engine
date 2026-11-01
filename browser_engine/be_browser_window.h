@@ -8,6 +8,7 @@
 #ifndef BROWSER_ENGINE_BE_BROWSER_WINDOW_H_
 #define BROWSER_ENGINE_BE_BROWSER_WINDOW_H_
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
@@ -72,8 +73,15 @@ class BEBrowserWindow : public BrowserWindow,
   // client area while no page is in the window.
   gfx::Rect GetContentsBoundsInScreen() const;
 
-  // Enters or leaves fullscreen for Chrome's ExclusiveAccessManager.
-  void ProcessFullscreen(bool fullscreen);
+  // Enters or leaves fullscreen for Chrome's ExclusiveAccessManager; entering,
+  // on `display_id` if a page asked for a particular screen
+  // (display::kInvalidDisplayId otherwise, and always when leaving).
+  void ProcessFullscreen(bool fullscreen, int64_t display_id);
+
+  // A page has the window in fullscreen, or is taking it there (Chrome's tab
+  // fullscreen). Not the user's own fullscreen (the green button, ⌃⌘F), in
+  // which the app keeps its bar as Chrome keeps its toolbar.
+  bool IsPageFullscreen() const;
 
   // The location bar or Chrome asked for the address field to take focus.
   void RequestLocationFocus();
@@ -249,6 +257,11 @@ class BEBrowserWindow : public BrowserWindow,
   // activation) stays true while a child widget such as a dialog has focus.
   void PaintAsActiveChanged();
 
+  // Chrome's FullscreenController changed state: a page or the window entered
+  // or left fullscreen. Called from a task Chrome posts, not from inside the
+  // change.
+  void OnFullscreenStateChanged();
+
   // The close button and Close() end up here (MakeCloseSynchronous): pages
   // may still ask to stay.
   void OnWindowCloseRequested(views::Widget::ClosedReason close_reason);
@@ -289,6 +302,10 @@ class BEBrowserWindow : public BrowserWindow,
   views::UnhandledKeyboardEventHandler unhandled_keyboard_event_handler_;
 
   base::CallbackListSubscription paint_as_active_subscription_;
+
+  // FullscreenController's, from OnBrowserInitialized() (the controller comes
+  // after us) until the window's features are torn down.
+  base::CallbackListSubscription fullscreen_subscription_;
 
   // The last fullscreen state Chrome heard about, so the window's own
   // fullscreen button and Chrome's requests tell Chrome exactly once.
