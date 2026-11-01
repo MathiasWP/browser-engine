@@ -13,6 +13,7 @@
 #include "base/scoped_observation.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
+#import "browser_engine/be_infobars.h"
 #import "browser_engine/be_passwords.h"
 #import "browser_engine/be_site_settings.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
@@ -242,6 +243,7 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   tabs::TabHandle _handle;
   std::unique_ptr<browser_engine::TabObserver> _observer;
   std::unique_ptr<browser_engine::TabPasswordOffer> _passwordOffer;
+  std::unique_ptr<browser_engine::TabInfobars> _infobars;
 }
 
 @synthesize delegate = _delegate;
@@ -271,6 +273,8 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
     _observer->StartObserving(tab->GetContents());
     _passwordOffer =
         std::make_unique<browser_engine::TabPasswordOffer>(tab, self);
+    _infobars = std::make_unique<browser_engine::TabInfobars>(self);
+    _infobars->StartObserving(tab->GetContents());
   }
   return self;
 }
@@ -287,6 +291,7 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
 
 - (void)contentsDidChange {
   _observer->StartObserving([self contents]);
+  _infobars->StartObserving([self contents]);
   [self scheduleUpdate];
 }
 
@@ -461,6 +466,12 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   // the page. Chrome says when they change through the window's location bar
   // (BELocationBar::UpdateContentSettingsIcons()), for the active tab.
   return browser_engine::GetSiteSettings([self contents]);
+}
+
+- (NSArray<id<BEInfobar>>*)infobars {
+  // One object per infobar for as long as Chrome keeps it (be_infobars.h),
+  // and the tab's update when one comes or goes.
+  return _infobars->GetInfobars();
 }
 
 - (BOOL)isAudible {

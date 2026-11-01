@@ -15,7 +15,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 10
+#define BE_API_VERSION 11
 
 @protocol BEWindow;
 @protocol BETab;
@@ -28,6 +28,7 @@ NS_ASSUME_NONNULL_BEGIN
 @protocol BESiteSetting;
 @protocol BEBookmark;
 @protocol BEVisitedPage;
+@protocol BEInfobar;
 
 /// Browser commands, run the way Chrome runs them (so ⌘-click and keyboard modifiers, tab
 /// restore and extensions all see them). The engine maps them to Chrome's command ids.
@@ -289,6 +290,28 @@ NS_SWIFT_UI_ACTOR
 @property (nonatomic, readonly, nullable) NSImage *favicon;
 @end
 
+// MARK: Infobars
+
+/// A message Chrome shows above a page until it's answered or closed: "Reload this page to apply
+/// your updated settings", "Sharing this tab with meet.google.com" with Stop sharing, and the
+/// like. (Chrome: an infobar's `ConfirmInfoBarDelegate`. Version 11.)
+NS_SWIFT_UI_ACTOR
+@protocol BEInfobar <NSObject>
+@property (nonatomic, readonly, copy) NSString *message;
+/// Its buttons' titles, the default first; empty for none.
+@property (nonatomic, readonly, copy) NSArray<NSString *> *buttons;
+/// A link after the message ("Learn more"); empty for none.
+@property (nonatomic, readonly, copy) NSString *linkText;
+/// Whether it has a close button.
+@property (nonatomic, readonly) BOOL isClosable;
+/// Presses one of `buttons`, as Chrome's infobar does; it may go away.
+- (void)pressButtonAtIndex:(NSInteger)index;
+/// Follows the link, as Chrome's infobar does.
+- (void)openLink;
+/// Closes it, as its close button does.
+- (void)close;
+@end
+
 // MARK: Site settings
 
 /// Something the page was allowed, or kept from doing, as an icon in Chrome's address bar shows
@@ -456,6 +479,9 @@ NS_SWIFT_UI_ACTOR
 /// anchored below `rect` (in the window's coordinates, from its bottom left), as a click on
 /// Chrome's icon does. Does nothing for one the page doesn't show.
 - (void)showSiteSetting:(NSString *)identifier fromRect:(NSRect)rect;
+/// Chrome's infobars for the page, oldest first; `tabDidUpdate:` says when they come or go.
+/// (Version 11.)
+@property (nonatomic, readonly, copy) NSArray<id<BEInfobar>> *infobars;
 /// The page is playing sound, or did a moment ago, as Chrome's tab strip shows it; `tabDidUpdate:`
 /// says when that changes. (Chrome: `RecentlyAudibleHelper`. Version 8.)
 @property (nonatomic, readonly) BOOL isAudible;

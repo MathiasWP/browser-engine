@@ -8,7 +8,7 @@ in its place is `BEBrowserWindow`, Chrome's third production `BrowserWindow` aft
 `BrowserView` and Webium's `WebUIBrowserWindow`, whose shape it follows at M156.
 
 The app and the engine meet only in `public/BEEngine.h` (a verbatim copy of the app's
-`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 10). The framework exports
+`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 11). The framework exports
 one function, `BEEngineCreate`.
 
 First draft, 30 Oct 2026, against Chromium 156.0.8078.47. Nothing here has been compiled
@@ -53,9 +53,9 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
   gets `didActivateTab:` again and must re-read `tab.view`).
 - **Updates.** Each `BETab` watches its WebContents (loading, progress, navigation, title,
   security, crash) and its favicon driver, plus Chrome's own `OnTabChangedAt()` and the
-  window's `UpdateToolbar*`/`UpdateTitleBar` calls, and the location bar's
-  `UpdateContentSettingsIcons()` for the active tab (site settings); `tabDidUpdate:` is
-  coalesced to one per task.
+  window's `UpdateToolbar*`/`UpdateTitleBar` calls, the location bar's
+  `UpdateContentSettingsIcons()` for the active tab (site settings), and the tab's
+  `ContentInfoBarManager` (infobars); `tabDidUpdate:` is coalesced to one per task.
 - **Commands.** `BECommand` maps to Chrome command ids and runs through
   `chrome::ExecuteCommand` / `chrome::IsCommandEnabled`, so tab restore, extensions and
   policies see them as Chrome's own. Key equivalents the page doesn't take are redispatched
@@ -90,12 +90,13 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 | `be_browser_window_parts.{h,mm}` | Never-null parts Chrome asks for: `BELocationBar`, `BEExclusiveAccessContext`, `BEModalDialogHost`, `BEFindBarOwner` (Webium's, re-pointed), and `BEStatusBubble` (a link's address or the load status, for `BEWindow.statusText`) |
 | `be_bubble_anchor.{h,mm}` | `BEBubbleAnchor`: what Chrome's bubbles anchor to when their button is the app's, an empty view in the widget's root view placed over the app's rect (extension popups, site-setting bubbles) |
 | `be_extensions.{h,mm}` | `BEExtensions`: a window's extension buttons, Chrome's `ExtensionsToolbarViewModel` with this as its delegate and the window's `ExtensionsContainer` (so `ExtensionsContainer::From()`, `chrome.action.openPopup()` and extension shortcuts find our windows); popups anchor to the app's button rect (`BEBubbleAnchor`) |
+| `be_infobars.{h,mm}` | `TabInfobars`: the page's infobars (`BETab.infobars`) from the tab's `ContentInfoBarManager`, watched across WebContents swaps, as `BEInfobar` (one object per infobar for its life), since only BrowserView shows infobars; the answers are those of Chrome's `ConfirmInfoBar`, `InfoBarView` and `TabSharingInfoBar` |
 | `be_site_settings.{h,mm}` | The address bar's site-setting icons (`BETab.siteSettings`): Chrome's `ContentSettingImageModel`s for the page, as `BESiteSetting`; `BESiteSettings`, per window, shows an icon's `ContentSettingBubbleContents` below the app's rect, as a click on Chrome's `ContentSettingImageView` does, and watches the macOS location permission as `LocationBarView` does |
 | `be_closed.{h,mm}` | `BERecentlyClosed`: the everyday profile's `TabRestoreService` entries as Chrome's History menu lists them (`BEEngine.recentlyClosed`), `RestoreClosedItem()`, and `RequestPageFavicon()`, the menu's icon request for both its sections |
 | `be_visited.{h,mm}` | `BERecentlyVisited`: the everyday profile's latest pages as Chrome's History menu lists them ("Recently Visited": `HistoryService::QueryHistory()` with the menu's options, asked again 750 ms after history changes), as `BEVisitedPage` (`BEEngine.recentlyVisited`) |
 | `be_bookmarks.{h,mm}` | `BEBookmarks`: the everyday profile's bookmarks as Chrome's Bookmarks menu lists them (`BookmarkMenuBridge`, through `BookmarkMergedSurfaceService`), as `BEBookmark` (`BEEngine.bookmarks`), listed again on the first read after a change; icons from `BookmarkModel::GetFavicon()` when read |
 | `be_window.{h,mm}` | `BEChromiumWindow` (`BEWindow`): commands, tab strip events, extension actions, status text |
-| `be_tab.{h,mm}` | `BEChromiumTab` (`BETab`): state, favicon, bookmark state (Chrome's `BookmarkTabHelper`), zoom (`ZoomController`), sound and mute (`RecentlyAudibleHelper`, `SetTabAudioMuted`), site settings (`be_site_settings.h`), coalesced updates, the per-TabHandle registry |
+| `be_tab.{h,mm}` | `BEChromiumTab` (`BETab`): state, favicon, bookmark state (Chrome's `BookmarkTabHelper`), zoom (`ZoomController`), sound and mute (`RecentlyAudibleHelper`, `SetTabAudioMuted`), site settings (`be_site_settings.h`), infobars (`be_infobars.h`), coalesced updates, the per-TabHandle registry |
 | `../patches/browser_engine/*.patch` | The touch points (below) |
 | `../.github/workflows/iterate.yml`, `../.github/scripts/github_iterate.sh` | The incremental build |
 
@@ -234,6 +235,27 @@ tree in `github_fetch_resources.sh`; the iterate script already skips applied pa
   mouse up, as for extension buttons: the press that closed an icon's bubble doesn't
   reopen it. The bubble closes by itself when another tab is activated, the page
   navigates, or the window closes; nothing tells the app when it closes.
+- **Infobars.** Read `infobars` of the selected tab when it's activated and on each
+  `tabDidUpdate:`, which follows a task after one comes, goes or is replaced (by a new
+  object). Each of Chrome's infobars is one object for its whole life: until it's answered
+  or closed, a navigation expires it (most go when the page changes; tab sharing and most
+  startup warnings stay), the page crashes, or the tab is discarded or closed. Then its
+  methods do nothing, and it keeps its last text. Its text and buttons don't change while it
+  lives: Chrome reads them once, as its own infobar does. They're all the page's, oldest
+  first. Chrome shows only the active tab's, and holds closable ones back by priority (at
+  most one of default priority at a time, the next once it closes:
+  `InfoBarContainerWithPriority`); v11 doesn't carry priority. `pressButtonAtIndex:` is
+  Chrome's button: OK, then Cancel (`buttons[0]` is always the default, Chrome's prominent
+  one), or for tab sharing Stop, "Share this tab instead" and the indicator that the site may
+  scroll and zoom the shared tab, which opens Page Info. A greyed-out button (v11 can't say
+  which) and a bad index do nothing. An answer usually removes the infobar; tab sharing's
+  remove or replace every tab's. `openLink` is a plain click: a "Learn more" link opens in a
+  new foreground tab; the alternate-address one ("Did you mean to go to http://intranet/?",
+  a link inside Chrome's message, so its text is in `message` too) loads in this tab.
+  `close` does nothing unless `isClosable`. Answer from the app's own events, not from
+  inside a tab-strip event (`didInsertTab:`...): Page Info's button reloads the page, Stop
+  ends a capture. `chrome://infobar-internals` (an internal debugging page:
+  `chrome://chrome-urls` turns those on) makes each kind on the current tab.
 - **Bookmarks and History menus.** Read `bookmarks`, `recentlyVisited` and `recentlyClosed`
   when the menu opens; before Chromium has started they're empty. `bookmarks` is what Chrome's
   Bookmarks menu lists below its own items: the managed bookmarks' folder (when a policy sets
@@ -305,8 +327,8 @@ Found while reading, not switchable (guard patches when they bite):
 - Site-setting bubbles (`be_site_settings.mm`): their links go through the browser's
   `BrowserContentSettingBubbleModelDelegate` (settings pages and help pages as tabs in our
   window, the cookies dialog as a tab-modal dialog), with no BrowserView. Infobars they add
-  (a cookie setting changed: "reload to apply") go to the tab's `ContentInfoBarManager`,
-  which no view shows in our windows. Chrome's bubble that opens by itself
+  (a cookie setting changed: "reload to apply") reach the app as the tab's `infobars`
+  (`be_infobars.mm`). Chrome's bubble that opens by itself
   (`ShouldAutoOpenBubble()`: camera, microphone or location allowed for the site but off
   in macOS) doesn't, since only the app knows where the icon is; the icon shows struck
   through, and a click opens it. At 156 Chrome's bar shows camera and microphone as an
@@ -371,6 +393,10 @@ Marked in code with `// UNVERIFIED:`, plus what reading couldn't settle:
 6. `be_site_settings.mm`: a press on the app's icon closes its open bubble before the app
    hears of the click (close-on-deactivate), as `BEExtensions` assumes for popups; if not,
    `Show()` finds the bubble open and closes it, which looks the same.
+7. `be_infobars.mm`: the tab-sharing message comes from the infobar's view, which is never
+   shown (`TabSharingInfoBar::GetStatusMessageViewForTesting()`: a label, or the status
+   view's accessible name, set without a widget). Read, not run, like the whole tab-sharing
+   path in our windows (`TabSharingUIViews` adding infobars to every tab of every browser).
 
 ## Open questions
 
