@@ -8,7 +8,7 @@ in its place is `BEBrowserWindow`, Chrome's third production `BrowserWindow` aft
 `BrowserView` and Webium's `WebUIBrowserWindow`, whose shape it follows at M156.
 
 The app and the engine meet only in `public/BEEngine.h` (a verbatim copy of the app's
-`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 6). The framework exports
+`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 7). The framework exports
 one function, `BEEngineCreate`.
 
 First draft, 30 Oct 2026, against Chromium 156.0.8078.47. Nothing here has been compiled
@@ -88,7 +88,7 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 | `be_browser_window.{h,mm}` | `BEBrowserWindow : BrowserWindow`, its widget delegate and `BENativeWidgetMac` |
 | `be_browser_window_parts.{h,mm}` | Never-null parts Chrome asks for: `BELocationBar`, `BEExclusiveAccessContext`, `BEModalDialogHost`, `BEFindBarOwner` (Webium's, re-pointed) |
 | `be_window.{h,mm}` | `BEChromiumWindow` (`BEWindow`): commands, tab strip events |
-| `be_tab.{h,mm}` | `BEChromiumTab` (`BETab`): state, favicon, coalesced updates, the per-TabHandle registry |
+| `be_tab.{h,mm}` | `BEChromiumTab` (`BETab`): state, favicon, bookmark state (Chrome's `BookmarkTabHelper`), coalesced updates, the per-TabHandle registry |
 | `../patches/browser_engine/*.patch` | The touch points (below) |
 | `../.github/workflows/iterate.yml`, `../.github/scripts/github_iterate.sh` | The incremental build |
 

@@ -15,7 +15,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 6
+#define BE_API_VERSION 7
 
 @protocol BEWindow;
 @protocol BETab;
@@ -329,6 +329,12 @@ NS_SWIFT_UI_ACTOR
 /// Shows Chrome's details for the page's site (connection, certificate, permissions, cookies),
 /// as clicking the lock does. (Chrome: Page Info. Version 4.)
 - (void)showSiteInfo;
+/// Whether the page's address is bookmarked; `tabDidUpdate:` says when that changes, wherever
+/// it changed (the star, ⌘D, the bookmark manager). (Version 7.)
+@property (nonatomic, readonly) BOOL isBookmarked;
+/// Bookmarks the page, as Chrome's star does (into the folder Chrome last used), or removes every
+/// bookmark of its address. (Version 7.)
+- (void)setBookmarked:(BOOL)bookmarked;
 @end
 
 /// The framework's one exported function. Returns nil if it was built for another API version.

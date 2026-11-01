@@ -3,6 +3,7 @@
 #import <AppKit/AppKit.h>
 
 #include <memory>
+#include <string>
 
 #include "base/check.h"
 #include "base/functional/bind.h"
@@ -12,18 +13,28 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #import "browser_engine/be_passwords.h"
+#include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
 #include "chrome/browser/devtools/devtools_window.h"
+#include "chrome/browser/favicon/favicon_utils.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/chrome_security_state_util.h"
+#include "chrome/browser/ui/bookmarks/bookmark_tab_helper.h"
+#include "chrome/browser/ui/bookmarks/bookmark_tab_helper_observer.h"
+#include "chrome/browser/ui/bookmarks/bookmark_utils.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/bubble_anchor_util.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
 #include "chrome/browser/ui/page_info/page_info_dialog.h"
 #include "chrome/browser/ui/tab_ui_helper.h"
+#include "components/bookmarks/browser/bookmark_model.h"
+#include "components/bookmarks/browser/bookmark_utils.h"
+#include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "components/favicon/core/favicon_driver.h"
 #include "components/favicon/core/favicon_driver_observer.h"
+#include "components/prefs/pref_service.h"
 #include "components/security_state/core/security_state.h"
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/navigation_controller.h"
@@ -45,11 +56,12 @@
 
 namespace browser_engine {
 
-// Watches a tab's current WebContents and its favicon, and has the BETab tell
-// its delegate, coalesced to one tabDidUpdate: per task however many events
-// arrive (load progress fires often).
+// Watches a tab's current WebContents, its favicon and its star, and has the
+// BETab tell its delegate, coalesced to one tabDidUpdate: per task however
+// many events arrive (load progress fires often).
 class TabObserver : public content::WebContentsObserver,
-                    public favicon::FaviconDriverObserver {
+                    public favicon::FaviconDriverObserver,
+                    public BookmarkTabHelperObserver {
  public:
   explicit TabObserver(BEChromiumTab* tab) : tab_(tab) {}
   TabObserver(const TabObserver&) = delete;
@@ -58,6 +70,7 @@ class TabObserver : public content::WebContentsObserver,
 
   void StartObserving(content::WebContents* contents) {
     favicon_observation_.Reset();
+    bookmark_observation_.Reset();
     Observe(contents);
     if (!contents) {
       return;
@@ -65,6 +78,13 @@ class TabObserver : public content::WebContentsObserver,
     if (favicon::ContentFaviconDriver* driver =
             favicon::ContentFaviconDriver::FromWebContents(contents)) {
       favicon_observation_.Observe(driver);
+    }
+    // What Chrome's star watches (BookmarkPageActionController): the page's
+    // address against the profile's bookmarks, whoever changed them. Every
+    // tab has one (TabHelpers::AttachTabHelpers()).
+    if (BookmarkTabHelper* helper =
+            BookmarkTabHelper::FromWebContents(contents)) {
+      bookmark_observation_.Observe(helper);
     }
   }
 
@@ -110,8 +130,10 @@ class TabObserver : public content::WebContentsObserver,
     ScheduleUpdate();
   }
   void WebContentsDestroyed() override {
-    // The favicon driver is WebContents user data; stop before it goes.
+    // The favicon driver and the bookmark helper are WebContents user data;
+    // stop before they go.
     favicon_observation_.Reset();
+    bookmark_observation_.Reset();
     [tab_ contentsDestroyed];
   }
 
@@ -124,11 +146,19 @@ class TabObserver : public content::WebContentsObserver,
     ScheduleUpdate();
   }
 
+  // BookmarkTabHelperObserver:
+  void URLStarredChanged(content::WebContents* web_contents,
+                         bool starred) override {
+    ScheduleUpdate();
+  }
+
   __weak BEChromiumTab* tab_;
   bool update_pending_ = false;
   base::ScopedObservation<favicon::FaviconDriver,
                           favicon::FaviconDriverObserver>
       favicon_observation_{this};
+  base::ScopedObservation<BookmarkTabHelper, BookmarkTabHelperObserver>
+      bookmark_observation_{this};
   base::WeakPtrFactory<TabObserver> weak_factory_{this};
 };
 
@@ -355,6 +385,17 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   return _passwordOffer->offer();
 }
 
+- (BOOL)isBookmarked {
+  content::WebContents* contents = [self contents];
+  if (!contents) {
+    return NO;
+  }
+  // Chrome's star: NO until the bookmarks are loaded, then looked at again
+  // (BookmarkTabHelper::BookmarkModelLoaded()).
+  BookmarkTabHelper* helper = BookmarkTabHelper::FromWebContents(contents);
+  return helper && helper->is_starred();
+}
+
 - (void)loadURL:(NSURL*)url {
   tabs::TabInterface* tab = [self tab];
   const GURL gurl = net::GURLWithNSURL(url);
@@ -388,6 +429,47 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   // floats it over our window (BELocationBar::GetChipAnchor()).
   ShowPageInfoDialog([self contents], base::DoNothing(),
                      bubble_anchor_util::Anchor::kLocationBar);
+}
+
+- (void)setBookmarked:(BOOL)bookmarked {
+  content::WebContents* contents = [self contents];
+  if (!contents) {
+    return;
+  }
+  // A private window's tabs use their original profile's bookmarks, as
+  // Chrome's star does there (BookmarkModelFactory redirects to it).
+  Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
+  bookmarks::BookmarkModel* model =
+      BookmarkModelFactory::GetForBrowserContext(profile);
+  // As chrome::CanBookmarkCurrentTab(), which enables ⌘D: nothing until the
+  // bookmarks are loaded, or while policy turns editing them off (which also
+  // hides the star).
+  if (!model || !model->loaded() ||
+      !profile->GetPrefs()->GetBoolean(
+          bookmarks::prefs::kEditBookmarksEnabled)) {
+    return;
+  }
+  // The address the star is for (the new tab page's is chrome://newtab).
+  GURL url;
+  std::u16string title;
+  if (!chrome::GetURLAndTitleToBookmark(contents, &url, &title)) {
+    return;  // No page.
+  }
+  if (!bookmarked) {
+    // Every bookmark of it the user can edit. Managed ones (policy) stay, and
+    // keep the star lit, as in Chrome.
+    bookmarks::RemoveAllBookmarks(model, url, FROM_HERE);
+    return;
+  }
+  // chrome::BookmarkCurrentTab() for this tab, not the window's active one,
+  // and without its bubble.
+  if (!model->IsBookmarked(url) && profile->IsOffTheRecord()) {
+    // Private windows keep no favicons; save this one for the bookmark.
+    favicon::SaveFaviconEvenIfInIncognito(contents);
+  }
+  // Into the folder Chrome last used (bookmarks::GetParentForNewNodes()),
+  // unless the user has bookmarked the address already.
+  bookmarks::AddIfNotBookmarked(model, url, title);
 }
 
 @end

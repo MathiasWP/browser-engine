@@ -613,7 +613,8 @@ void BEBrowserWindow::ShowIntentPickerBubble(
 
 void BEBrowserWindow::ShowBookmarkBubble(const GURL& url,
                                          bool already_bookmarked) {
-  NOTIMPLEMENTED_LOG_ONCE();  // Bookmarks are milestone 2.
+  // The app shows bookmark state itself (BETab isBookmarked).
+  NOTIMPLEMENTED_LOG_ONCE();
 }
 
 ShowTranslateBubbleResult BEBrowserWindow::ShowTranslateBubble(
