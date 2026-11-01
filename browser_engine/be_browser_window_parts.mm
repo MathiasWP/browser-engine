@@ -3,10 +3,14 @@
 #include <utility>
 
 #include "base/functional/bind.h"
+#include "base/no_destructor.h"
 #include "base/notimplemented.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_engine/be_browser_window.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/autofill/autofill_bubble_base.h"
+#include "chrome/browser/ui/autofill/save_address_bubble_controller.h"
+#include "chrome/browser/ui/autofill/update_address_bubble_controller.h"
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/global_browser_collection.h"
@@ -29,6 +33,24 @@
 #include "ui/views/window/client_view.h"
 
 namespace browser_engine {
+
+namespace {
+
+// What BEAutofillBubbleHandler shows: nothing. One for the process, so a
+// controller still holding it (its tab moved to another window) never dangles.
+class NoAutofillBubble : public autofill::AutofillBubbleBase {
+ public:
+  // autofill::AutofillBubbleBase:
+  void Hide() override {}
+  bool IsMouseHovered() const override { return false; }
+};
+
+autofill::AutofillBubbleBase* NoBubble() {
+  static base::NoDestructor<NoAutofillBubble> bubble;
+  return bubble.get();
+}
+
+}  // namespace
 
 // BELocationBar ---------------------------------------------------------------
 
@@ -414,6 +436,153 @@ void BEFindBarOwner::CloseOverlappingBubbles() {
           TranslateBubbleController::From(window_->browser())) {
     controller->CloseBubble();
   }
+}
+
+// BEAutofillBubbleHandler -----------------------------------------------------
+
+BEAutofillBubbleHandler::BEAutofillBubbleHandler(
+    BrowserWindowInterface* browser)
+    : scoped_user_data_(browser->GetUnownedUserDataHost(), *this) {}
+
+BEAutofillBubbleHandler::~BEAutofillBubbleHandler() = default;
+
+autofill::AutofillBubbleBase* BEAutofillBubbleHandler::ShowSaveCreditCardBubble(
+    content::WebContents* web_contents,
+    autofill::SaveCardBubbleController* controller,
+    bool is_user_gesture) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase* BEAutofillBubbleHandler::ShowIbanBubble(
+    content::WebContents* web_contents,
+    autofill::IbanBubbleController* controller,
+    bool is_user_gesture,
+    autofill::IbanBubbleType bubble_type) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowOfferNotificationBubble(
+    content::WebContents* web_contents,
+    autofill::OfferNotificationBubbleController* controller,
+    bool is_user_gesture) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowSaveAutofillAiDataBubble(
+    content::WebContents* web_contents,
+    autofill::AutofillAiImportDataController* controller) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowAutofillAiLocalSaveNotification(
+    content::WebContents* web_contents,
+    autofill::AutofillAiImportDataController* controller) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowSaveAddressProfileBubble(
+    content::WebContents* web_contents,
+    std::unique_ptr<autofill::SaveAddressBubbleController> controller,
+    bool is_user_gesture) {
+  // Patch 13 declines address prompts before they get here. A bubble would
+  // own `controller`; with none it goes now.
+  return NoBubble();
+}
+
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+autofill::AutofillBubbleBase* BEAutofillBubbleHandler::ShowAddressSignInPromo(
+    content::WebContents* web_contents,
+    const autofill::AutofillProfile& autofill_profile) {
+  return NoBubble();
+}
+#endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowUpdateAddressProfileBubble(
+    content::WebContents* web_contents,
+    std::unique_ptr<autofill::UpdateAddressBubbleController> controller,
+    bool is_user_gesture) {
+  return NoBubble();  // As ShowSaveAddressProfileBubble().
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowFilledCardInformationBubble(
+    content::WebContents* web_contents,
+    autofill::FilledCardInformationBubbleController* controller,
+    bool is_user_gesture) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowVirtualCardEnrollBubble(
+    content::WebContents* web_contents,
+    autofill::VirtualCardEnrollBubbleController* controller,
+    bool is_user_gesture) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowVirtualCardEnrollConfirmationBubble(
+    content::WebContents* web_contents,
+    autofill::VirtualCardEnrollBubbleController* controller) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowMandatoryReauthBubble(
+    content::WebContents* web_contents,
+    autofill::MandatoryReauthBubbleController* controller,
+    bool is_user_gesture,
+    autofill::MandatoryReauthBubbleType bubble_type) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowSaveCardConfirmationBubble(
+    content::WebContents* web_contents,
+    autofill::SaveCardBubbleController* controller) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowSaveIbanConfirmationBubble(
+    content::WebContents* web_contents,
+    autofill::IbanBubbleController* controller) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowOmniboxAutofillBubble(
+    content::WebContents* web_contents,
+    autofill::OmniboxAutofillBubbleController* controller) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowPaymentsChurnedUsersBubble(
+    content::WebContents* web_contents,
+    autofill::PaymentsChurnedUsersBubbleController* controller,
+    bool is_user_gesture) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowPaymentsChurnedUsersConfirmationBubble(
+    content::WebContents* web_contents,
+    autofill::PaymentsChurnedUsersBubbleController* controller) {
+  return NoBubble();
+}
+
+autofill::AutofillBubbleBase*
+BEAutofillBubbleHandler::ShowWalletReminderNoticeBubble(
+    content::WebContents* web_contents,
+    autofill::WalletReminderNoticeBubbleController* controller,
+    bool is_user_gesture) {
+  return NoBubble();
 }
 
 }  // namespace browser_engine

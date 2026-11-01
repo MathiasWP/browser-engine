@@ -2,8 +2,12 @@
 
 #import <AppKit/AppKit.h>
 
+#include <memory>
+
 #include "base/check.h"
 #include "base/memory/weak_ptr.h"
+#include "base/strings/sys_string_conversions.h"
+#include "browser_engine/be_autocomplete.h"
 #include "browser_engine/be_browser_window.h"
 #import "browser_engine/be_engine.h"
 #import "browser_engine/be_tab.h"
@@ -60,6 +64,47 @@ int CommandIdForCommand(BECommand command) {
       return IDC_FIND_NEXT;
     case BECommandFindPrevious:
       return IDC_FIND_PREVIOUS;
+    // Version 2: the ids of Chrome's own Mac main menu items
+    // (main_menu_builder.mm).
+    case BECommandReloadBypassingCache:
+      return IDC_RELOAD_BYPASSING_CACHE;
+    case BECommandZoomIn:
+      return IDC_ZOOM_PLUS;
+    case BECommandZoomOut:
+      return IDC_ZOOM_MINUS;
+    case BECommandZoomReset:
+      return IDC_ZOOM_NORMAL;
+    case BECommandPrint:
+      return IDC_PRINT;
+    case BECommandSavePage:
+      return IDC_SAVE_PAGE;
+    case BECommandOpenFile:
+      return IDC_OPEN_FILE;
+    case BECommandViewSource:
+      return IDC_VIEW_SOURCE;
+    case BECommandDevTools:
+      // ⌥⌘I. Like F12's IDC_DEV_TOOLS_TOGGLE, it closes DevTools docked to
+      // the page and opens or activates it otherwise
+      // (DevToolsWindow::ToggleDevToolsWindow).
+      return IDC_DEV_TOOLS;
+    case BECommandDevToolsConsole:
+      return IDC_DEV_TOOLS_CONSOLE;
+    case BECommandDevToolsInspect:
+      return IDC_DEV_TOOLS_INSPECT;
+    case BECommandShowHistory:
+      return IDC_SHOW_HISTORY;
+    case BECommandShowDownloads:
+      return IDC_SHOW_DOWNLOADS;
+    case BECommandBookmarkPage:
+      return IDC_BOOKMARK_THIS_TAB;
+    case BECommandShowBookmarks:
+      return IDC_SHOW_BOOKMARK_MANAGER;
+    case BECommandClearBrowsingData:
+      return IDC_CLEAR_BROWSING_DATA;
+    case BECommandDuplicateTab:
+      return IDC_DUPLICATE_TAB;
+    case BECommandTaskManager:
+      return IDC_TASK_MANAGER_MAIN_MENU;
   }
   return -1;
 }
@@ -70,6 +115,9 @@ int CommandIdForCommand(BECommand command) {
   // Null once the window closed.
   browser_engine::BEBrowserWindow* _window;
   base::WeakPtr<BrowserWindowInterface> _browser;
+  // The address bar's suggestions: made for the first one, destroyed with the
+  // window.
+  std::unique_ptr<browser_engine::BEAutocomplete> _autocomplete;
 }
 
 @synthesize delegate = _delegate;
@@ -172,6 +220,16 @@ int CommandIdForCommand(BECommand command) {
   [_delegate windowWillClose:self];
   _window = nullptr;
   _browser.reset();
+  // After the app let go, so nothing makes it again; before the Browser and
+  // its profile go, which the controller's providers read. A pending update
+  // dies with it.
+  _autocomplete.reset();
+}
+
+- (void)suggestionsDidUpdate:(NSArray<id<BESuggestion>>*)suggestions {
+  if (_window) {
+    [_delegate window:self didUpdateSuggestions:suggestions];
+  }
 }
 
 // MARK: BEWindow
@@ -280,6 +338,33 @@ int CommandIdForCommand(BECommand command) {
     params.tabstrip_add_types |= AddTabTypes::ADD_FORCE_INDEX;
   }
   Navigate(&params);
+}
+
+- (void)suggestForText:(NSString*)text
+    allowsInlineCompletion:(BOOL)allowsInlineCompletion {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser) {
+    return;
+  }
+  if (!_autocomplete) {
+    _autocomplete =
+        std::make_unique<browser_engine::BEAutocomplete>(browser, self);
+  }
+  _autocomplete->Start(base::SysNSStringToUTF16(text), allowsInlineCompletion);
+}
+
+- (void)stopSuggesting {
+  if (_autocomplete) {
+    _autocomplete->Stop();
+  }
+}
+
+- (void)openSuggestionAtIndex:(NSInteger)index inNewTab:(BOOL)inNewTab {
+  if (!_autocomplete || index < 0) {
+    return;
+  }
+  // Last: opening can close this window's tab, and so the window.
+  _autocomplete->Open(static_cast<size_t>(index), inNewTab);
 }
 
 @end

@@ -41,6 +41,12 @@ NS_ASSUME_NONNULL_BEGIN
 // method is a no-op afterwards.
 - (void)browserWindowWillClose;
 
+// Called by browser_engine::BEAutocomplete.
+
+// New suggestions for the text last given to
+// suggestForText:allowsInlineCompletion:.
+- (void)suggestionsDidUpdate:(NSArray<id<BESuggestion>>*)suggestions;
+
 @end
 
 NS_ASSUME_NONNULL_END

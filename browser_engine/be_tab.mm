@@ -10,6 +10,8 @@
 #include "base/scoped_observation.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
+#include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
+#include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/ssl/chrome_security_state_util.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
@@ -26,6 +28,8 @@
 #include "net/base/apple/url_conversions.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image.h"
 #include "url/gurl.h"
 
@@ -307,6 +311,34 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
     return nil;  // The app shows its default icon.
   }
   return driver->GetFavicon().AsNSImage();
+}
+
+- (NSView*)devToolsView {
+  // What BrowserView shows behind the page (DevtoolsUIController): docked
+  // DevTools, or undocked DevTools' device-mode toolbox.
+  content::WebContents* devtools =
+      DevToolsWindow::GetInTabWebContents([self contents], nullptr);
+  return devtools ? devtools->GetNativeView().GetNativeNSView() : nil;
+}
+
+- (NSRect)pageFrameWithDevToolsInBounds:(NSRect)bounds {
+  DevToolsContentsResizingStrategy strategy;
+  if (!DevToolsWindow::GetInTabWebContents([self contents], &strategy)) {
+    return bounds;
+  }
+  // As ContentsContainerView lays out, from the top-left corner of the area;
+  // `bounds` is AppKit's, from the bottom left.
+  const gfx::Rect container(gfx::Size(bounds.size));
+  gfx::Rect devtools_bounds;
+  gfx::Rect page_bounds;
+  ApplyDevToolsContentsResizingStrategy(strategy, container, &devtools_bounds,
+                                        &page_bounds);
+  if (page_bounds == container) {
+    return bounds;  // Not rounded down to whole points.
+  }
+  return NSMakeRect(NSMinX(bounds) + page_bounds.x(),
+                    NSMaxY(bounds) - page_bounds.bottom(), page_bounds.width(),
+                    page_bounds.height());
 }
 
 - (void)loadURL:(NSURL*)url {

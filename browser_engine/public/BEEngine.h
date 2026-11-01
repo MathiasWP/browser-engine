@@ -15,10 +15,12 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 1
+#define BE_API_VERSION 2
 
 @protocol BEWindow;
 @protocol BETab;
+@protocol BEPreferences;
+@protocol BESuggestion;
 
 /// Browser commands, run the way Chrome runs them (so ⌘-click and keyboard modifiers, tab
 /// restore and extensions all see them). The engine maps them to Chrome's command ids.
@@ -39,6 +41,26 @@ typedef NS_ENUM(NSInteger, BECommand) {
     BECommandFind,
     BECommandFindNext,
     BECommandFindPrevious,
+    // Version 2.
+    BECommandReloadBypassingCache,
+    BECommandZoomIn,
+    BECommandZoomOut,
+    BECommandZoomReset,
+    BECommandPrint,
+    BECommandSavePage,
+    BECommandOpenFile,
+    BECommandViewSource,
+    /// Opens or closes DevTools for the page, docked where it was last.
+    BECommandDevTools,
+    BECommandDevToolsConsole,
+    BECommandDevToolsInspect,
+    BECommandShowHistory,
+    BECommandShowDownloads,
+    BECommandBookmarkPage,
+    BECommandShowBookmarks,
+    BECommandClearBrowsingData,
+    BECommandDuplicateTab,
+    BECommandTaskManager,
 };
 
 /// How a page's connection reads in the address bar. (Chrome: `security_state::SecurityLevel`)
@@ -66,6 +88,8 @@ NS_SWIFT_UI_ACTOR
 @property (nonatomic, readonly, copy) NSString *version;
 /// Where the everyday profile keeps its data.
 @property (nonatomic, readonly, copy) NSURL *dataFolder;
+/// The everyday profile's preferences; nil until Chromium has started.
+@property (nonatomic, readonly, nullable) id<BEPreferences> preferences;
 
 /// Starts Chromium and runs the app until it quits; returns the exit code. NSApp must already be
 /// an `NSApplication` that adopts Chromium's `CrAppProtocol` and `CrAppControlProtocol`
@@ -83,6 +107,55 @@ NS_SWIFT_UI_ACTOR
 - (void)quit;
 @end
 
+// MARK: Preferences
+
+/// Chrome's preferences (`PrefService`), by name ("intl.accept_languages"). A name the profile
+/// doesn't have is looked up in Chrome's Local State, its browser-wide preferences
+/// ("dns_over_https.mode"). Values are what `base::Value` holds: @YES and @NO, other NSNumbers
+/// (whole or not), NSString, and NSArray and NSDictionary of these.
+NS_SWIFT_UI_ACTOR
+@protocol BEPreferences <NSObject>
+/// The current value, or nil if no preference has that name.
+- (nullable id)valueForPreference:(NSString *)name;
+/// Whether the user changed it from its default.
+- (BOOL)isPreferenceModified:(NSString *)name;
+/// Whether it exists and the user may change it: not when policy or the command line fixes it.
+- (BOOL)canSetPreference:(NSString *)name;
+/// Sets the value; nil puts back the default. Refuses, saying why, for an unknown name, a
+/// preference the user can't change, or a value of the wrong type.
+- (BOOL)setValue:(nullable id)value forPreference:(NSString *)name error:(NSError **)error;
+@end
+
+// MARK: Address bar
+
+/// What a suggestion is. (Chrome: `AutocompleteMatchType`, grouped)
+typedef NS_ENUM(NSInteger, BESuggestionKind) {
+    /// The address as typed.
+    BESuggestionKindAddress,
+    /// A page visited before.
+    BESuggestionKindHistory,
+    BESuggestionKindBookmark,
+    /// A search with the default search engine.
+    BESuggestionKindSearch,
+    /// An open tab to switch to.
+    BESuggestionKindOpenTab,
+};
+
+/// One address-bar suggestion. (Chrome: `AutocompleteMatch`)
+NS_SWIFT_UI_ACTOR
+@protocol BESuggestion <NSObject>
+@property (nonatomic, readonly) BESuggestionKind kind;
+/// What it reads as: the address, or the search terms.
+@property (nonatomic, readonly, copy) NSString *text;
+/// What goes beside it: the page's title, or which engine searches.
+@property (nonatomic, readonly, copy) NSString *detail;
+/// Where choosing it goes.
+@property (nonatomic, readonly, copy) NSURL *url;
+/// Completes what was typed, selected after the cursor; empty for none. Only the first
+/// suggestion has one.
+@property (nonatomic, readonly, copy) NSString *inlineCompletion;
+@end
+
 // MARK: Windows
 
 /// What a window tells the app. Indexes are positions in the window's tab strip.
@@ -95,6 +168,9 @@ NS_SWIFT_UI_ACTOR
 - (void)window:(id<BEWindow>)window didActivateTab:(id<BETab>)tab;
 /// Chrome asks for the address field to take focus (⌘L, a new tab), selecting all of it.
 - (void)windowWantsLocationFocus:(id<BEWindow>)window;
+/// Suggestions for the text last given to `suggestForText:allowsInlineCompletion:`, best first.
+/// The first is what Return opens. Arrives several times as Chrome's sources answer.
+- (void)window:(id<BEWindow>)window didUpdateSuggestions:(NSArray<id<BESuggestion>> *)suggestions;
 /// The window is closing; the app lets go of it and its views.
 - (void)windowWillClose:(id<BEWindow>)window;
 @end
@@ -119,6 +195,15 @@ NS_SWIFT_UI_ACTOR
 - (void)closeTabAtIndex:(NSInteger)index;
 /// Opens `url` in a new tab after the active one.
 - (void)openURL:(NSURL *)url inBackground:(BOOL)inBackground;
+
+/// Suggests for what's typed in the address field, as Chrome's omnibox does. No inline
+/// completion right after the user deleted text.
+- (void)suggestForText:(NSString *)text allowsInlineCompletion:(BOOL)allowsInlineCompletion;
+/// The address field is done: stops suggesting and forgets the suggestions.
+- (void)stopSuggesting;
+/// Opens the suggestion at `index` of the last update as Chrome's omnibox does: in the active
+/// tab, or a new foreground tab; an open-tab suggestion switches to that tab.
+- (void)openSuggestionAtIndex:(NSInteger)index inNewTab:(BOOL)inNewTab;
 @end
 
 // MARK: Tabs
@@ -152,6 +237,13 @@ NS_SWIFT_UI_ACTOR
 /// Asleep to save memory; it reloads when selected. (Chrome: discarded)
 @property (nonatomic, readonly) BOOL isDiscarded;
 @property (nonatomic, readonly, nullable) NSImage *favicon;
+/// DevTools docked to this tab, or nil. The app shows it filling the page area, with the page
+/// on top of it at `pageFrameWithDevToolsInBounds:`. `tabDidUpdate:` says when it comes, goes or
+/// asks for another layout.
+@property (nonatomic, readonly, nullable) NSView *devToolsView;
+/// Where the page goes when docked DevTools fills `bounds`, in the same coordinates.
+/// (Chrome: `ApplyDevToolsContentsResizingStrategy`)
+- (NSRect)pageFrameWithDevToolsInBounds:(NSRect)bounds;
 
 /// What the user typed or picked in the address field.
 - (void)loadURL:(NSURL *)url;

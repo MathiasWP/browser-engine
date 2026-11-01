@@ -1,0 +1,36 @@
+# browser_engine touch point: docked DevTools in our windows. DevTools docks
+# only where the window has a DevtoolsUIController (DevToolsWindow::Create());
+# ours gives it one with no ContentsContainerViews, so its UpdateDevtools()
+# has nothing to lay out. The app places docked DevTools itself (BETab
+# devToolsView, pageFrameWithDevToolsInBounds:), so it must hear when DevTools
+# docks, undocks or changes its layout (SetInspectedPageBounds()): everything
+# but the first docked Show() comes through UpdateBrowserWindow(), which tells
+# our window here. Chrome's own windows have a BrowserView and are left alone.
+
+diff --git a/chrome/browser/devtools/devtools_window_views.cc b/chrome/browser/devtools/devtools_window_views.cc
+--- a/chrome/browser/devtools/devtools_window_views.cc
++++ b/chrome/browser/devtools/devtools_window_views.cc
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "chrome/browser/devtools/devtools_ui_controller.h"
+ #include "chrome/browser/devtools/devtools_window.h"
+ #include "chrome/browser/ui/browser_window.h"
+@@ -139,6 +140,15 @@ void DevToolsWindow::UpdateBrowserWindow() {
+           DevtoolsUIController::From(inspected_browser)) {
+     devtools_ui_controller->UpdateDevtools(inspected_web_contents);
+   }
++  // browser_engine: our windows have no BrowserView for DevtoolsUIController
++  // to lay out; the app places docked DevTools itself (BETab devToolsView).
++  // Tell our window, for this tab, the way DevTools tells the toolbar.
++  if (browser_engine::IsEmbedded()) {
++    BrowserWindow* window = BrowserWindow::FromBrowser(inspected_browser);
++    if (window && !window->AsBrowserView()) {
++      window->UpdateToolbar(inspected_web_contents);
++    }
++  }
+ }
+ 
+ void DevToolsWindow::RegisterModalDialogManager(

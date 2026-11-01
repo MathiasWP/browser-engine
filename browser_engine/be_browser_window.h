@@ -27,6 +27,8 @@
 @class BEChromiumWindow;
 @class NSView;
 
+class DevtoolsUIController;
+
 namespace views {
 class NativeViewHost;
 class NativeWidget;
@@ -34,6 +36,7 @@ class NativeWidget;
 
 namespace browser_engine {
 
+class BEAutofillBubbleHandler;
 class BEExclusiveAccessContext;
 class BEFindBarOwner;
 class BELocationBar;
@@ -269,6 +272,12 @@ class BEBrowserWindow : public BrowserWindow,
   std::unique_ptr<BEModalDialogHost> modal_dialog_host_;
   std::unique_ptr<BEExclusiveAccessContext> exclusive_access_context_;
   std::unique_ptr<BEFindBarOwner> find_bar_owner_;
+  std::unique_ptr<BEAutofillBubbleHandler> autofill_bubble_handler_;
+
+  // Lets DevTools dock in our window (DevToolsWindow::Create() asks for it).
+  // It has none of BrowserView's views to lay out: BETab hands docked DevTools
+  // to the app.
+  std::unique_ptr<DevtoolsUIController> devtools_ui_controller_;
 
   // Command ids for accelerators, from chrome/browser/ui/accelerator_table.h.
   std::map<ui::Accelerator, int> accelerator_table_;

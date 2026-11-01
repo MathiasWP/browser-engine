@@ -3,6 +3,7 @@
 #import <AppKit/AppKit.h>
 
 #include <utility>
+#include <vector>
 
 #include "base/check.h"
 #include "base/check_op.h"
@@ -13,6 +14,7 @@
 #import "browser_engine/be_window.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
+#include "chrome/browser/devtools/devtools_ui_controller.h"
 #include "chrome/browser/global_keyboard_shortcuts_mac.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/theme_service.h"
@@ -268,6 +270,15 @@ BEBrowserWindow::BEBrowserWindow(BrowserWindowInterface* browser)
   exclusive_access_context_ = std::make_unique<BEExclusiveAccessContext>(this);
   find_bar_owner_ = std::make_unique<BEFindBarOwner>(
       this, browser_->GetUnownedUserDataHost());
+  autofill_bubble_handler_ =
+      std::make_unique<BEAutofillBubbleHandler>(browser_.get());
+  // DevTools docks only where the browser has a DevtoolsUIController
+  // (DevToolsWindow::Create()); BrowserWindowFeatures makes one for
+  // BrowserView alone. Ours gets no ContentsContainerViews, so it lays nothing
+  // out: the app does, told through UpdateToolbar() and Show().
+  devtools_ui_controller_ = std::make_unique<DevtoolsUIController>(
+      browser_.get(),
+      std::vector<raw_ptr<ContentsContainerView, DanglingUntriaged>>());
 
   paint_as_active_subscription_ =
       widget_->RegisterPaintAsActiveChangedCallback(base::BindRepeating(
@@ -291,6 +302,8 @@ BEBrowserWindow::~BEBrowserWindow() {
   // and FindBarController that hold pointers to our parts.
   browser_->GetFeatures().TearDownPreBrowserWindowDestruction();
 
+  devtools_ui_controller_.reset();
+  autofill_bubble_handler_.reset();
   find_bar_owner_.reset();
   exclusive_access_context_.reset();
   modal_dialog_host_.reset();
@@ -472,8 +485,8 @@ void BEBrowserWindow::SetContentsSize(const gfx::Size& size) {
 }
 
 autofill::AutofillBubbleHandler* BEBrowserWindow::GetAutofillBubbleHandler() {
-  NOTIMPLEMENTED_LOG_ONCE();  // Milestone 2 (password and address bubbles).
-  return nullptr;
+  // Shows no bubbles (be_browser_window_parts.h); the app's come later.
+  return autofill_bubble_handler_.get();
 }
 
 LocationBar* BEBrowserWindow::GetLocationBar() const {
@@ -498,6 +511,16 @@ void BEBrowserWindow::UpdateReloadStopState(bool is_loading, bool force) {
 
 void BEBrowserWindow::UpdateToolbar(content::WebContents* contents) {
   [objc_window_ activeTabDidChange];
+  // DevTools names the tab it's docked to when it docks, undocks or changes
+  // its layout (patch 12), which needn't be the active one.
+  if (contents) {
+    TabStripModel* model = browser_->GetTabStripModel();
+    const int index = model->GetIndexOfWebContents(contents);
+    if (index != TabStripModel::kNoTab) {
+      [[BEChromiumTab existingTabForTab:model->GetTabAtIndex(index)]
+          scheduleUpdate];
+    }
+  }
 }
 
 bool BEBrowserWindow::UpdateToolbarSecurityState() {
@@ -790,6 +813,12 @@ void BEBrowserWindow::Show() {
   // AppKit activates the window on the next run loop turn, or
   // GetLastActive() would be wrong for whoever asks next.
   BrowserActiveStateManager::From(browser_)->DidBecomeActive();
+
+  // DevToolsWindow::Show() calls this right after docking DevTools, and
+  // nothing else tells our window (devtools_window.cc; later changes come
+  // through UpdateToolbar()). The tab it docked to is, or is about to be, the
+  // active one.
+  [objc_window_ activeTabDidChange];
 
   if (widget_->IsVisible()) {
     widget_->Activate();

@@ -8,7 +8,7 @@ in its place is `BEBrowserWindow`, Chrome's third production `BrowserWindow` aft
 `BrowserView` and Webium's `WebUIBrowserWindow`, whose shape it follows at M156.
 
 The app and the engine meet only in `public/BEEngine.h` (a verbatim copy of the app's
-`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 1). The framework exports
+`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 2). The framework exports
 one function, `BEEngineCreate`.
 
 First draft, 30 Oct 2026, against Chromium 156.0.8078.47. Nothing here has been compiled
@@ -80,7 +80,9 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 | `BUILD.gn` | `:hooks` (dependency-free, what Chromium's files include) and `:browser_engine` (the layer; linked into the framework via `//chrome:chrome_dll`) |
 | `public/BEEngine.h` | The interface, verbatim from the app |
 | `browser_engine_hooks.{h,cc}` | `browser_engine::Hooks`, `IsEmbedded()`: the only thing the touch points call |
-| `be_engine.{h,mm}` | `BEEngineCreate`, `BEChromiumEngine` (`BEEngine`), the hooks implementation, NSApp stand-ins |
+| `be_engine.{h,mm}` | `BEEngineCreate`, `BEChromiumEngine` (`BEEngine`), the hooks implementation, NSApp stand-ins, and BrowserCrApplication's accessibility activation (`BEAppAccessibility`) |
+| `be_preferences.{h,mm}` | `BEChromiumPreferences` (`BEPreferences`): the last used profile's `PrefService`, then Local State |
+| `be_autocomplete.{h,mm}` | `BEAutocomplete`: a window's address-bar suggestions, Chrome's `AutocompleteController` with the omnibox's local providers, and opening a suggestion as the omnibox does |
 | `be_browser_window.{h,mm}` | `BEBrowserWindow : BrowserWindow`, its widget delegate and `BENativeWidgetMac` |
 | `be_browser_window_parts.{h,mm}` | Never-null parts Chrome asks for: `BELocationBar`, `BEExclusiveAccessContext`, `BEModalDialogHost`, `BEFindBarOwner` (Webium's, re-pointed) |
 | `be_window.{h,mm}` | `BEChromiumWindow` (`BEWindow`): commands, tab strip events |
@@ -111,6 +113,8 @@ patches), and checked with `git apply --check` the way the build applies them.
 | 09 | `chrome/browser/browser_process_platform_part_mac.mm` | Found while reading: `AttemptExit(false)` (IDC_EXIT) asks `AppController.sharedController` for the confirm-to-quit panel, which would create AppController and steal NSApp's delegate |
 | 10 | `chrome/browser/ui/read_anything/read_anything_side_panel_controller.cc` | Found on the first run: closing the active tab CHECK-failed in Reading Mode's `TabWillDetach()` (no `SidePanelUI`, `CHECK_IS_TEST`). Webium's exit |
 | 11 | `chrome/browser/ui/toasts/toast_controller.cc` | `CreateToast()` without an anchor view is `CHECK_IS_TEST` too. Webium's exit: no toasts in our windows yet |
+| 12 | `chrome/browser/devtools/devtools_window_views.cc` | Docked DevTools: `UpdateBrowserWindow()` only tells a BrowserView about resizing, dock side and undocking. For our window it calls `UpdateToolbar(inspected)`, which updates that tab, so the app lays out again |
+| 13 | `chrome/browser/ui/autofill/address_bubbles_controller.cc` | Saving an address dereferenced the BrowserView `FindBrowserWindowWithWebContents()` finds (none for us). When embedded, the offer is declined as when a bubble can't show |
 
 **Webium's other `BrowserWindowFeatures` arms, and why there's no patch for them:**
 - `BrowserElementsWebUiBrowser`: with Webium off, features make `BrowserElementsViewsImpl`;
@@ -149,7 +153,7 @@ flavor **dev**), on `macos-26-intel`:
    `arch`, `base_run_id`, `run_id`) → artifact `engine_x86_64`.
 
 Each run recompiles the 7 patched Chromium files (the patches are re-applied to a fresh
-base), our 6 sources, and relinks the framework. To save those recompiles, a later dev base
+base), our 8 sources, and relinks the framework. To save those recompiles, a later dev base
 can carry the touch points: add them to `patches/series` and copy `browser_engine/` into the
 tree in `github_fetch_resources.sh`; the iterate script already skips applied patches.
 
@@ -231,9 +235,17 @@ Found while reading, not switchable (guard patches when they bite):
 - `chrome_exe_main_mac.cc` registers PartitionAlloc's malloc zone before any thread starts.
   The app doesn't, so the zone is swapped when the framework loads, which is only safe while
   the process has one thread. The app loads it first thing in `main()`.
-- Autofill and password bubbles call `GetAutofillBubbleHandler()`, which is null for us (as
-  for Webium); expect a crash when Chrome offers to save a password or address until
-  milestone 2. Turning off "Offer to save passwords" and address autofill in prefs avoids it.
+- Autofill and payments bubbles: `BEAutofillBubbleHandler` answers every `Show*` with a bubble
+  that does nothing, since callers `CHECK` what they get. So no autofill, card or Autofill AI
+  bubble shows yet. Addresses are declined (patch 13). Password bubbles return early without
+  Chrome's toolbar (`password_bubble_view_base.cc:64-68`), so passwords aren't offered either.
+- "Create QR code" (`qrcode_window_controller.cc:45-46`) dereferences Chrome's toolbar. The app
+  launches with ungoogled's `--enable-features=DisableQRGenerator`, which hides it.
+- "Send to your devices" (`send_tab_to_self_bubble_controller.cc:107-108`) does the same, but
+  only shows with sync or sign-in, which ungoogled-chromium doesn't offer.
+- Downloads have no UI in our windows yet. They save, and nothing assumes a BrowserView:
+  `DownloadToolbarUIController` is made for BrowserView only, and the update service checks for
+  null.
 
 ## BEBrowserWindow: real vs stubbed
 
@@ -251,7 +263,7 @@ the callback), emoji panel, HaTS (runs the failure callback), `GetCanResize`,
 `GetWindowShowState`, `GetRestoredState`.
 
 Stubs (one line each, commented): top-controls sliding, status bubbles (none),
-loading animations, `OnTabDetached`, autofill bubble handler (null), pinned toolbar actions
+loading animations, `OnTabDetached`, pinned toolbar actions
 (null), custom tab bar, toolbar focus/size, tab dragging, link-opening animation, app menu,
 tab-strip editing for tests, update dialog, intent picker, bookmark bubble, translate bubble
 (`kBrowserWindowNotValid`, as Webium), download bubble (null), drag pre-handling, avatar
@@ -274,10 +286,12 @@ Marked in code with `// UNVERIFIED:`, plus what reading couldn't settle:
 3. Hit-testing and window dragging with the app's NSView covering `BridgedContentView` under
    a transparent title bar (`kBrowser` window class): the app's bar must say where the window
    can be dragged (`mouseDownCanMoveWindow` / `_opaqueRectForWindowMoveWhenInTitlebar`).
-4. VoiceOver: `BrowserCrApplication` turns on Chrome's accessibility when VoiceOver or other
-   assistive technology asks (`accessibilitySetValue:forAttribute:`, VoiceOver KVO,
-   `kSonomaAccessibilityActivationRefinements`); the app's NSApplication doesn't. Pages may
-   stay inaccessible until the app does the same.
+4. VoiceOver: the engine does BrowserCrApplication's accessibility activation for the app's NSApp
+   (`AddMissingAppMethods()` → `BEAppAccessibility`): VoiceOver through content's
+   `voiceOverEnabled` KVO, `AXEnhancedUserInterface` from other assistive technology (2 s
+   debounce), and `accessibilityRole` (Voice Control). It applies only while the app's class
+   doesn't override those methods itself, and hasn't been tried with VoiceOver running. Not ported:
+   `accessibilityFocusedUIElement` (focus across processes, for PWA app shims).
 5. The pending `openURLs:` flush runs from a task posted in `PreCreateThreads()`, assumed to
    run after startup's windows exist (the main loop starts after `PreMainMessageLoopRun`).
 

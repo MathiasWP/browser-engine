@@ -9,14 +9,17 @@
 
 #include "base/apple/foundation_util.h"
 #include "base/check.h"
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/mac/mac_util.h"
 #include "base/no_destructor.h"
 #include "base/strings/strcat.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_engine/be_browser_window.h"
+#import "browser_engine/be_preferences.h"
 #include "browser_engine/browser_engine_hooks.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
@@ -37,8 +40,12 @@
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/version_info/version_info.h"
+#include "content/public/browser/browser_accessibility_state.h"
 #import "content/public/browser/native_event_processor_mac.h"
+#include "content/public/browser/scoped_accessibility_mode.h"
+#include "content/public/common/content_features.h"
 #include "net/base/apple/url_conversions.h"
+#include "ui/accessibility/ax_mode.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "url/gurl.h"
@@ -52,6 +59,20 @@ extern "C" int ChromeMain(int argc, const char** argv);
 @property(nonatomic, readonly, nullable) id<BEEngineDelegate> delegate;
 // From the hooks: the main loop runs and startup has made its windows.
 - (void)browserDidStart;
+@end
+
+// BrowserCrApplication's accessibility support, for the app's NSApp
+// (chrome_browser_application_mac.mm at 156): Chrome's accessibility comes on
+// when VoiceOver runs or other assistive technology asks for it. The methods
+// AddMissingAppMethods() adds to NSApp's class call it.
+@interface BEAppAccessibility : NSObject
+// NSWorkspace's voiceOverEnabled, which BrowserAccessibilityStateImplMac
+// observes for NSApp from its start, is (or became) `voiceOverEnabled`.
+- (void)voiceOverStateChanged:(BOOL)voiceOverEnabled;
+// Assistive technology set NSApp's AXEnhancedUserInterface.
+- (void)enableScreenReaderCompleteModeAfterDelay:(BOOL)enable;
+// Assistive technology read NSApp's accessibilityRole.
+- (void)accessibilityRoleRequested;
 @end
 
 namespace browser_engine {
@@ -150,6 +171,25 @@ EngineHooks& GetEngineHooks() {
   return *hooks;
 }
 
+// What [super ...] runs for `selector` in NSApp's class, to override it with;
+// null if the class implements `selector` itself.
+IMP InheritedAppMethod(SEL selector) {
+  Class app_class = [NSApp class];
+  IMP inherited =
+      class_getMethodImplementation(class_getSuperclass(app_class), selector);
+  return class_getMethodImplementation(app_class, selector) == inherited
+             ? inherited
+             : nullptr;
+}
+
+// Adds `block` to NSApp's class as its own `selector`, which it inherits.
+void OverrideAppMethod(SEL selector, id block) {
+  Class app_class = [NSApp class];
+  class_addMethod(app_class, selector, imp_implementationWithBlock(block),
+                  method_getTypeEncoding(class_getInstanceMethod(
+                      class_getSuperclass(app_class), selector)));
+}
+
 // Chromium sends NSApp a few messages beyond CrAppProtocol, which its own
 // BrowserCrApplication answers. The engine answers them for the app's
 // NSApplication, adding the methods at runtime, because only Chromium's side
@@ -160,6 +200,10 @@ EngineHooks& GetEngineHooks() {
 // - chrome_browser_application_mac::CancelTerminate() sends -cancelTerminate:
 //   when the user stays on a page during quit; the stand-in does what
 //   AppController's -stopTryingToTerminateApplication does.
+// - Assistive technology, and content's VoiceOver KVO, reach NSApp through
+//   three NSApplication methods, which BrowserCrApplication overrides to turn
+//   Chrome's accessibility on (BEAppAccessibility). The overrides call
+//   NSApplication's own, as [super ...] would.
 // An app that implements them itself keeps its own.
 void AddMissingAppMethods() {
   Class app_class = [NSApp class];
@@ -180,6 +224,52 @@ void AddMissingAppMethods() {
                       }
                     }),
                     "v@:@");
+  }
+
+  BEAppAccessibility* accessibility = [[BEAppAccessibility alloc] init];
+  SEL set_value = @selector(accessibilitySetValue:forAttribute:);
+  if (IMP inherited = InheritedAppMethod(set_value)) {
+    auto* super_set_value =
+        reinterpret_cast<void (*)(id, SEL, id, NSString*)>(inherited);
+    OverrideAppMethod(set_value, ^(id app, id value, NSString* attribute) {
+      // Undocumented, and set when VoiceOver goes on or off. VoiceOver is
+      // followed through KVO (below), but other assistive technology may set
+      // it to ask for accessibility.
+      if ([attribute isEqualToString:@"AXEnhancedUserInterface"]) {
+        [accessibility
+            enableScreenReaderCompleteModeAfterDelay:[value boolValue]];
+      }
+      super_set_value(app, set_value, value, attribute);
+    });
+  }
+  SEL role = @selector(accessibilityRole);
+  if (IMP inherited = InheritedAppMethod(role)) {
+    auto* super_role =
+        reinterpret_cast<NSAccessibilityRole (*)(id, SEL)>(inherited);
+    OverrideAppMethod(role, ^NSAccessibilityRole(id app) {
+      [accessibility accessibilityRoleRequested];
+      return super_role(app, role);
+    });
+  }
+  SEL observe = @selector(observeValueForKeyPath:ofObject:change:context:);
+  if (IMP inherited = InheritedAppMethod(observe)) {
+    auto* super_observe = reinterpret_cast<void (*)(
+        id, SEL, NSString*, id, NSDictionary*, void*)>(inherited);
+    OverrideAppMethod(observe, ^(id app, NSString* key_path, id object,
+                                 NSDictionary* change, void* context) {
+      // The context is the BrowserAccessibilityState that set this up, as
+      // opposed to observations of the app's own.
+      if ([key_path isEqualToString:@"voiceOverEnabled"] &&
+          context == content::BrowserAccessibilityState::GetInstance()) {
+        NSNumber* enabled =
+            base::apple::ObjCCast<NSNumber>(change[NSKeyValueChangeNewKey]);
+        if (enabled) {
+          [accessibility voiceOverStateChanged:enabled.boolValue];
+        }
+        return;
+      }
+      super_observe(app, observe, key_path, object, change, context);
+    });
   }
 }
 
@@ -225,6 +315,7 @@ id<BEEngineDelegate> GetEngineDelegate() {
   BOOL _ran;
   BOOL _started;
   NSMutableArray<NSURL*>* _pendingURLs;
+  BEChromiumPreferences* _preferences;
 }
 
 - (instancetype)init {
@@ -266,6 +357,16 @@ id<BEEngineDelegate> GetEngineDelegate() {
     profile_dir = user_data_dir.Append(chrome::kInitialProfile);
   }
   return base::apple::FilePathToNSURL(profile_dir);
+}
+
+- (id<BEPreferences>)preferences {
+  if (!_started) {
+    return nil;
+  }
+  if (!_preferences) {
+    _preferences = [[BEChromiumPreferences alloc] init];
+  }
+  return _preferences;
 }
 
 - (int)runWithArguments:(NSArray<NSString*>*)arguments
@@ -395,6 +496,92 @@ id<BEEngineDelegate> GetEngineDelegate() {
     [_pendingURLs removeAllObjects];
     [self openURLs:urls];
   }
+}
+
+@end
+
+@implementation BEAppAccessibility {
+  // A counter for enhanced user interface enable (+1) and disable (-1)
+  // requests.
+  int _AXEnhancedUserInterfaceRequests;
+  BOOL _voiceOverEnabled;
+  std::unique_ptr<content::ScopedAccessibilityMode> _scopedModeVoiceOver;
+  std::unique_ptr<content::ScopedAccessibilityMode> _scopedModeGeneral;
+}
+
+- (void)enableScreenReaderCompleteMode:(BOOL)enable {
+  if (enable) {
+    if (!_scopedModeVoiceOver) {
+      _scopedModeVoiceOver =
+          content::BrowserAccessibilityState::GetInstance()
+              ->CreateScopedModeForProcess(ui::kAXModeComplete |
+                                           ui::AXMode::kFromPlatform |
+                                           ui::AXMode::kScreenReader);
+    }
+  } else {
+    _scopedModeVoiceOver.reset();
+  }
+}
+
+// For -performSelector:withObject:afterDelay:, which can't pass a BOOL.
+- (void)enableScreenReaderCompleteMode {
+  _AXEnhancedUserInterfaceRequests = 0;
+  [self enableScreenReaderCompleteMode:YES];
+}
+
+- (void)voiceOverStateChanged:(BOOL)voiceOverEnabled {
+  _voiceOverEnabled = voiceOverEnabled;
+  [self enableScreenReaderCompleteMode:voiceOverEnabled];
+}
+
+- (void)enableScreenReaderCompleteModeAfterDelay:(BOOL)enable {
+  // VoiceOver, once on, overrides other assistive technology.
+  if (_voiceOverEnabled) {
+    return;
+  }
+  // Disabling with no enable request seen: disable now.
+  if (!enable && _AXEnhancedUserInterfaceRequests == 0) {
+    [self enableScreenReaderCompleteMode:NO];
+    return;
+  }
+  if (enable) {
+    _AXEnhancedUserInterfaceRequests++;
+  } else {
+    _AXEnhancedUserInterfaceRequests--;
+  }
+  DCHECK(_AXEnhancedUserInterfaceRequests >= 0);
+  // Since macOS Sonoma, AXEnhancedUserInterface sometimes flips on and off
+  // quickly: enable only once requests have stopped for two seconds.
+  [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                           selector:@selector
+                                           (enableScreenReaderCompleteMode)
+                                             object:nil];
+  if (_AXEnhancedUserInterfaceRequests > 0) {
+    const float kTwoSecondDelay = 2.0;
+    [self performSelector:@selector(enableScreenReaderCompleteMode)
+               withObject:nil
+               afterDelay:kTwoSecondDelay];
+  }
+}
+
+- (void)accessibilityRoleRequested {
+  // Apple's advice for assistive technology other than VoiceOver (Voice
+  // Control): turn accessibility on when it reads the app's role. That's
+  // often, so only while accessibility is off.
+  if (_scopedModeGeneral || _scopedModeVoiceOver) {
+    return;
+  }
+  // Chrome reads this in -finishLaunching; it can't change, and the feature
+  // list is ready long before assistive technology can ask.
+  const bool sonoma_refinements =
+      base::mac::MacOSVersion() >= 14'00'00 &&
+      base::FeatureList::IsEnabled(
+          features::kSonomaAccessibilityActivationRefinements);
+  const ui::AXMode target_mode =
+      sonoma_refinements ? ui::AXMode::kNativeAPIs : ui::kAXModeBasic;
+  _scopedModeGeneral =
+      content::BrowserAccessibilityState::GetInstance()
+          ->CreateScopedModeForProcess(target_mode | ui::AXMode::kFromPlatform);
 }
 
 @end
