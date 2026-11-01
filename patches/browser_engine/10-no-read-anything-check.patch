@@ -1,0 +1,26 @@
+# browser_engine touch point: closing the active tab of one of our windows
+# CHECK-fails in Reading Mode (TabWillDetach(): no SidePanelUI, CHECK_IS_TEST).
+# The app's windows have no side panel, like Webium's, so take Webium's exit.
+
+diff --git a/chrome/browser/ui/read_anything/read_anything_side_panel_controller.cc b/chrome/browser/ui/read_anything/read_anything_side_panel_controller.cc
+--- a/chrome/browser/ui/read_anything/read_anything_side_panel_controller.cc
++++ b/chrome/browser/ui/read_anything/read_anything_side_panel_controller.cc
+@@ -9,6 +9,7 @@
+ 
+ #include "base/check_is_test.h"
+ #include "base/functional/bind.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "chrome/browser/dom_distiller/tab_utils.h"
+ #include "chrome/browser/ui/browser_window/public/browser_window_features.h"
+ #include "chrome/browser/ui/read_anything/read_anything_contents_wrapper.h"
+@@ -243,7 +244,9 @@ void ReadAnythingSidePanelController::TabWillDetach(
+   if (!side_panel_ui) {
+     // TODO(webium): create a SidePanelCoordinator for WebUIBrowser.
+     // This is a temporary solution to avoid a crash.
+-    if (!webui_browser::IsWebUIBrowserEnabled()) {
++    // browser_engine: the app's windows have no side panel either.
++    if (!webui_browser::IsWebUIBrowserEnabled() &&
++        !browser_engine::IsEmbedded()) {
+       CHECK_IS_TEST();
+     }
+     return;  // IN-TEST

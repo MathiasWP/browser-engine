@@ -1,0 +1,26 @@
+# browser_engine touch point: a toast ("Link copied" and the like) in one of
+# our windows CHECK-fails: there is no anchor view (CreateToast(), CHECK_IS_TEST).
+# Take Webium's exit and show none; the app can show its own later.
+
+diff --git a/chrome/browser/ui/toasts/toast_controller.cc b/chrome/browser/ui/toasts/toast_controller.cc
+--- a/chrome/browser/ui/toasts/toast_controller.cc
++++ b/chrome/browser/ui/toasts/toast_controller.cc
+@@ -20,6 +20,7 @@
+ #include "base/time/time.h"
+ #include "base/timer/timer.h"
+ #include "base/types/to_address.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "chrome/browser/browser_process.h"
+ #include "chrome/browser/ui/browser_element_identifiers.h"
+ #include "chrome/browser/ui/browser_window/public/browser_window_features.h"
+@@ -323,7 +324,9 @@ void ToastController::CreateToast(ToastParams params,
+   if (!anchor_view) {
+     // Don't actually create the toast in unit tests
+     // TODO(webium): show toast in webui browser.
+-    if (!webui_browser::IsWebUIBrowserEnabled()) {
++    // browser_engine: nor in the app's windows, which have no anchor views.
++    if (!webui_browser::IsWebUIBrowserEnabled() &&
++        !browser_engine::IsEmbedded()) {
+       CHECK_IS_TEST();
+     }
+     return;

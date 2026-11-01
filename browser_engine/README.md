@@ -109,6 +109,8 @@ patches), and checked with `git apply --check` the way the build applies them.
 | 07 | `chrome/browser/chrome_browser_main_mac.mm` | CEF's guard: no AppController or main menu in `PreCreateThreads()`; also `DidEndMainMessageLoop()`, since `AppController.sharedController` creates one (and takes `NSApp.delegate`) on first use |
 | 08 | `chrome/app/chrome_main_delegate.cc` | `PreBrowserMain()`: no `RegisterBrowserCrApp()` (it CHECKs that NSApp is a `BrowserCrApplication`) |
 | 09 | `chrome/browser/browser_process_platform_part_mac.mm` | Found while reading: `AttemptExit(false)` (IDC_EXIT) asks `AppController.sharedController` for the confirm-to-quit panel, which would create AppController and steal NSApp's delegate |
+| 10 | `chrome/browser/ui/read_anything/read_anything_side_panel_controller.cc` | Found on the first run: closing the active tab CHECK-failed in Reading Mode's `TabWillDetach()` (no `SidePanelUI`, `CHECK_IS_TEST`). Webium's exit |
+| 11 | `chrome/browser/ui/toasts/toast_controller.cc` | `CreateToast()` without an anchor view is `CHECK_IS_TEST` too. Webium's exit: no toasts in our windows yet |
 
 **Webium's other `BrowserWindowFeatures` arms, and why there's no patch for them:**
 - `BrowserElementsWebUiBrowser`: with Webium off, features make `BrowserElementsViewsImpl`;
@@ -216,7 +218,7 @@ Found while reading, not switchable (guard patches when they bite):
   or command triggers those actions.
 - Null-checked (no action needed): `ios_promo_controller.cc:93`,
   `vertical_tab_iph_controller.cc:74`, `auto_picture_in_picture_window_occlusion_helper_widget.cc`,
-  `dictation/application_registration_delegate.cc`, `toast_controller.cc` (no anchor → no toast).
+  `dictation/application_registration_delegate.cc`.
 - Choosers (Bluetooth, USB, serial, HID): `chooser_bubble_ui.cc:303-311` dereferences the
   BrowserView unchecked.
 - Pointer and keyboard lock prompts: `exclusive_access_permission_prompt.cc:25` calls
