@@ -1,0 +1,49 @@
+# browser_engine touch point: a link's address under the pointer goes to the
+# status bubble of the page it's in. Chrome finds that bubble by casting each of
+# BrowserView's status bubbles to StatusBubbleViews and its base view to
+# ContentsWebView. Our window's one bubble (be_browser_window_parts.h) is
+# neither, and casting it would be undefined behaviour. For our windows the
+# active page's address goes to that bubble, and leaving the page clears it.
+
+diff --git a/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc b/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc
+--- a/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc
++++ b/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc
+@@ -8,6 +8,7 @@
+ #include "base/metrics/histogram_macros.h"
+ #include "base/notimplemented.h"
+ #include "base/trace_event/trace_event.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "chrome/app/chrome_command_ids.h"
+ #include "chrome/browser/actor/actor_util.h"
+ #include "chrome/browser/background/background_contents.h"
+@@ -798,6 +799,15 @@ void BrowserWebContentsDelegate::UpdateTargetURL(content::WebContents* source,
+                                                  const GURL& url) {
+   std::vector<StatusBubble*> status_bubbles =
+       browser_ui_controller_->GetStatusBubbles();
++  // browser_engine: our windows have one status bubble, the active page's,
++  // and it isn't a StatusBubbleViews over a ContentsWebView (the casts below).
++  if (browser_engine::IsEmbedded() && !window_->AsBrowserView()) {
++    if (!status_bubbles.empty() &&
++        source == browser_->GetTabStripModel()->GetActiveWebContents()) {
++      status_bubbles.front()->SetURL(url);
++    }
++    return;
++  }
+   for (StatusBubble* status_bubble : status_bubbles) {
+     StatusBubbleViews* status_bubble_views =
+         static_cast<StatusBubbleViews*>(status_bubble);
+@@ -825,6 +835,14 @@ void BrowserWebContentsDelegate::ContentsMouseEvent(
+   // Mouse motion events update the status bubble, if it exists.
+   std::vector<StatusBubble*> status_bubbles =
+       browser_ui_controller_->GetStatusBubbles();
++  // browser_engine: as in UpdateTargetURL(). Leaving the page clears the link.
++  if (browser_engine::IsEmbedded() && !window_->AsBrowserView()) {
++    if (!status_bubbles.empty() && exited &&
++        source == browser_->GetTabStripModel()->GetActiveWebContents()) {
++      status_bubbles.front()->SetURL(GURL());
++    }
++    return;
++  }
+   for (StatusBubble* status_bubble : status_bubbles) {
+     StatusBubbleViews* status_bubble_views =
+         static_cast<StatusBubbleViews*>(status_bubble);

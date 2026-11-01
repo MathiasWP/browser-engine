@@ -15,7 +15,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 7
+#define BE_API_VERSION 8
 
 @protocol BEWindow;
 @protocol BETab;
@@ -23,6 +23,8 @@ NS_ASSUME_NONNULL_BEGIN
 @protocol BESuggestion;
 @protocol BEDownload;
 @protocol BEPasswordOffer;
+@protocol BEExtensionAction;
+@protocol BEClosedItem;
 
 /// Browser commands, run the way Chrome runs them (so ⌘-click and keyboard modifiers, tab
 /// restore and extensions all see them). The engine maps them to Chrome's command ids.
@@ -93,6 +95,9 @@ NS_SWIFT_UI_ACTOR
 @property (nonatomic, readonly, copy) NSString *version;
 /// Where the everyday profile keeps its data.
 @property (nonatomic, readonly, copy) NSURL *dataFolder;
+/// Tabs and windows closed recently, newest first, as Chrome's History menu lists them (the
+/// everyday profile's). Read it when the menu opens. (Version 8.)
+@property (nonatomic, readonly, copy) NSArray<id<BEClosedItem>> *recentlyClosed;
 /// The everyday profile's preferences; nil until Chromium has started.
 @property (nonatomic, readonly, nullable) id<BEPreferences> preferences;
 
@@ -215,6 +220,40 @@ NS_SWIFT_UI_ACTOR
 - (void)dismiss;
 @end
 
+// MARK: Extensions
+
+/// An extension's button, as Chrome's toolbar shows it for the window's active tab. (Chrome:
+/// `ToolbarActionViewModel`. Version 8.)
+NS_SWIFT_UI_ACTOR
+@protocol BEExtensionAction <NSObject>
+/// The extension's id; stable.
+@property (nonatomic, readonly, copy) NSString *identifier;
+/// What the button says on hover: the extension's name, or its title for this tab.
+@property (nonatomic, readonly, copy) NSString *title;
+@property (nonatomic, readonly, nullable) NSImage *icon;
+/// A few characters over the icon (a count); empty for none.
+@property (nonatomic, readonly, copy) NSString *badgeText;
+@property (nonatomic, readonly, nullable) NSColor *badgeColor;
+/// Whether it does anything on this tab.
+@property (nonatomic, readonly) BOOL isEnabled;
+@end
+
+// MARK: Recently closed
+
+/// A tab, window or tab group closed earlier, as Chrome keeps them for ⇧⌘T. (Chrome:
+/// `sessions::TabRestoreService::Entry`. Version 8.)
+NS_SWIFT_UI_ACTOR
+@protocol BEClosedItem <NSObject>
+/// Stable while the item is in the list.
+@property (nonatomic, readonly) int32_t identifier;
+@property (nonatomic, readonly) BOOL isWindow;
+/// The tab's title, or what Chrome's menu calls a window or group ("3 Tabs").
+@property (nonatomic, readonly, copy) NSString *title;
+/// A tab's address; nil for a window or group.
+@property (nonatomic, readonly, copy, nullable) NSURL *url;
+@property (nonatomic, readonly, nullable) NSImage *favicon;
+@end
+
 // MARK: Windows
 
 /// What a window tells the app. Indexes are positions in the window's tab strip.
@@ -236,6 +275,10 @@ NS_SWIFT_UI_ACTOR
 - (void)windowDidChangePageFullscreen:(id<BEWindow>)window;
 /// `offersRestoreAfterCrash` changed. (Version 6.)
 - (void)windowDidChangeRestoreOffer:(id<BEWindow>)window;
+/// Extensions were added, removed, pinned, or changed their buttons. (Version 8.)
+- (void)windowDidUpdateExtensionActions:(id<BEWindow>)window;
+/// `statusText` changed. (Version 8.)
+- (void)windowDidChangeStatus:(id<BEWindow>)window;
 @end
 
 NS_SWIFT_UI_ACTOR
@@ -269,6 +312,21 @@ NS_SWIFT_UI_ACTOR
 - (void)closeTabAtIndex:(NSInteger)index;
 /// Opens `url` in a new tab after the active one.
 - (void)openURL:(NSURL *)url inBackground:(BOOL)inBackground;
+
+/// The extensions' buttons for the active tab, in Chrome's toolbar order: pinned ones first.
+/// `windowDidUpdateExtensionActions:` says when they change. (Version 8.)
+@property (nonatomic, readonly, copy) NSArray<id<BEExtensionAction>> *extensionActions;
+/// Runs an extension's button as a click on Chrome's toolbar does: shows its popup, anchored
+/// below `rect` (in the window's coordinates, from its bottom left), or runs its action.
+- (void)runExtensionAction:(NSString *)identifier fromRect:(NSRect)rect;
+
+/// Reopens a recently closed tab or window, in place of ⇧⌘T's choice. (Version 8.)
+- (void)restoreClosedItem:(int32_t)identifier;
+
+/// What Chrome's status bubble shows over the bottom of the page: the address of the link under
+/// the pointer, or what a loading page waits for ("Waiting for example.com…"); empty for
+/// nothing. `windowDidChangeStatus:` says when it changes. (Chrome: `StatusBubble`. Version 8.)
+@property (nonatomic, readonly, copy) NSString *statusText;
 
 /// Suggests for what's typed in the address field, as Chrome's omnibox does. No inline
 /// completion right after the user deleted text.
@@ -335,6 +393,16 @@ NS_SWIFT_UI_ACTOR
 /// Bookmarks the page, as Chrome's star does (into the folder Chrome last used), or removes every
 /// bookmark of its address. (Version 7.)
 - (void)setBookmarked:(BOOL)bookmarked;
+/// The page's zoom in percent, as Chrome's zoom bubble shows it; 100 at the default zoom, where
+/// Chrome shows no zoom icon. `tabDidUpdate:` says when it changes. (Version 8.)
+@property (nonatomic, readonly) NSInteger zoomPercent;
+/// The page is playing sound, or did a moment ago, as Chrome's tab strip shows it; `tabDidUpdate:`
+/// says when that changes. (Chrome: `RecentlyAudibleHelper`. Version 8.)
+@property (nonatomic, readonly) BOOL isAudible;
+/// Whether the tab's sound is off; `tabDidUpdate:` says when that changes.
+@property (nonatomic, readonly) BOOL isMuted;
+/// Turns the tab's sound off or on, as the tab strip's audio button does.
+- (void)setMuted:(BOOL)muted;
 @end
 
 /// The framework's one exported function. Returns nil if it was built for another API version.

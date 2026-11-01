@@ -86,9 +86,11 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 | `be_passwords.{h,mm}` | `TabPasswordOffer`: Chrome's offer to save or update a password, read from the tab's password page action (the bubble itself needs Chrome's toolbar), as `BEPasswordOffer`; its answers replay the bubble's (`SaveUpdateBubbleController`) |
 | `be_autocomplete.{h,mm}` | `BEAutocomplete`: a window's address-bar suggestions, Chrome's `AutocompleteController` with the omnibox's local providers, and opening a suggestion as the omnibox does |
 | `be_browser_window.{h,mm}` | `BEBrowserWindow : BrowserWindow`, its widget delegate and `BENativeWidgetMac` |
-| `be_browser_window_parts.{h,mm}` | Never-null parts Chrome asks for: `BELocationBar`, `BEExclusiveAccessContext`, `BEModalDialogHost`, `BEFindBarOwner` (Webium's, re-pointed) |
-| `be_window.{h,mm}` | `BEChromiumWindow` (`BEWindow`): commands, tab strip events |
-| `be_tab.{h,mm}` | `BEChromiumTab` (`BETab`): state, favicon, bookmark state (Chrome's `BookmarkTabHelper`), coalesced updates, the per-TabHandle registry |
+| `be_browser_window_parts.{h,mm}` | Never-null parts Chrome asks for: `BELocationBar`, `BEExclusiveAccessContext`, `BEModalDialogHost`, `BEFindBarOwner` (Webium's, re-pointed), and `BEStatusBubble` (a link's address or the load status, for `BEWindow.statusText`) |
+| `be_extensions.{h,mm}` | `BEExtensions`: a window's extension buttons, Chrome's `ExtensionsToolbarViewModel` with this as its delegate and the window's `ExtensionsContainer` (so `ExtensionsContainer::From()`, `chrome.action.openPopup()` and extension shortcuts find our windows); popups anchor to an empty view placed over the app's button rect |
+| `be_closed.{h,mm}` | `BERecentlyClosed`: the everyday profile's `TabRestoreService` entries as Chrome's History menu lists them (`BEEngine.recentlyClosed`), and `RestoreClosedItem()` |
+| `be_window.{h,mm}` | `BEChromiumWindow` (`BEWindow`): commands, tab strip events, extension actions, status text |
+| `be_tab.{h,mm}` | `BEChromiumTab` (`BETab`): state, favicon, bookmark state (Chrome's `BookmarkTabHelper`), zoom (`ZoomController`), sound and mute (`RecentlyAudibleHelper`, `SetTabAudioMuted`), coalesced updates, the per-TabHandle registry |
 | `../patches/browser_engine/*.patch` | The touch points (below) |
 | `../.github/workflows/iterate.yml`, `../.github/scripts/github_iterate.sh` | The incremental build |
 
@@ -124,6 +126,8 @@ patches), and checked with `git apply --check` the way the build applies them.
 | 18 | `components/password_manager/core/browser/password_manager.cc` | Inside the app, Chrome offers to save passwords, as Chrome and Safari do: ungoogled-chromium's inox defaults turn `credentials_enable_service` off. The setting stays |
 | 19 | `chrome/browser/ui/views/session_crashed_bubble_view.cc` | After a crash Chrome waits for its "Restore pages?" bubble to be answered, keeping the old session and saving no new one. The bubble needs a BrowserView, so for our window `ShowBubble()` hands the offer to the window (`Hooks::ShowSessionCrashedBubble`), which offers it to the app (`BEWindow.offersRestoreAfterCrash`) |
 | 20 | `chrome/browser/preloading/preloading_prefs.cc` | Inside the app, Chrome's standard preloading is the default, as in Chrome: likely next pages are resolved, connected to and prerendered, and the loading predictor connects early to the hosts a site loads from. ungoogled-chromium's inox defaults turn it off, which made repeat visits to sites like Reddit start slower. The setting stays |
+| 21 | `chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc` | `UpdateTargetURL()` and `ContentsMouseEvent()` cast each status bubble to `StatusBubbleViews` and its base view to `ContentsWebView`. For our windows (no BrowserView) the active page's link goes to our one bubble, and leaving the page clears it |
+| 22 | `chrome/browser/ui/extensions/extension_install_ui_desktop.cc` | After an install, the "added" dialog's closing callback points the toolbar at the new extension, dereferencing the BrowserView unchecked (`OnInstallSuccess()`); for our windows it stops there |
 
 **Webium's other `BrowserWindowFeatures` arms, and why there's no patch for them:**
 - `BrowserElementsWebUiBrowser`: with Webium off, features make `BrowserElementsViewsImpl`;
@@ -237,9 +241,10 @@ Found while reading, not switchable (guard patches when they bite):
 - Closing a **pinned** tab with ⌘W: `chrome/browser/ui/browser_commands.cc:1515-1516`
   (`CloseTab()` → pinned-tab toast) `CHECK(browser_view)`. The app shouldn't pin tabs yet.
 - Extension dialogs anchored to the toolbar: `chrome/browser/ui/extensions/extension_dialog_utils_views.cc:90`
-  dereferences `BrowserView::GetBrowserViewForBrowser(browser)` unchecked; every window
-  gets an `ExtensionInstalledWatcher` (`browser_window_features.cc:416`). Likely the
-  "post-install extension dialog" crash from docs/embedding.md.
+  (`ShowDialog(BrowserWindowInterface*, …)`) dereferences
+  `BrowserView::GetBrowserViewForBrowser(browser)` unchecked. The native-window variants find
+  our `ExtensionsContainer` or fall back to a window-modal dialog. The post-install crash
+  (`extension_install_ui_desktop.cc:161-163`) is touch point 22.
 - Toolbar actions invoked programmatically: `chrome/browser/ui/browser_actions.cc:812,1485,2014`
   `CHECK_DEREF(BrowserView::...)`. Unreachable without Chrome's toolbar, unless an extension
   or command triggers those actions.
@@ -289,7 +294,7 @@ redispatch + FocusManager accelerators, accelerator provider, find bar (Chrome's
 the callback), emoji panel, HaTS (runs the failure callback), `GetCanResize`,
 `GetWindowShowState`, `GetRestoredState`.
 
-Stubs (one line each, commented): top-controls sliding, status bubbles (none),
+Stubs (one line each, commented): top-controls sliding,
 loading animations, `OnTabDetached`, pinned toolbar actions
 (null), custom tab bar, toolbar focus/size, tab dragging, link-opening animation, app menu,
 tab-strip editing for tests, update dialog, intent picker, bookmark bubble, translate bubble

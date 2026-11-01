@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 
+#include "base/callback_list.h"
 #include "base/check.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
@@ -27,7 +28,10 @@
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
 #include "chrome/browser/ui/page_info/page_info_dialog.h"
+#include "chrome/browser/ui/recently_audible_helper.h"
 #include "chrome/browser/ui/tab_ui_helper.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
+#include "chrome/browser/ui/tabs/tab_muted_utils.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
@@ -37,6 +41,8 @@
 #include "components/prefs/pref_service.h"
 #include "components/security_state/core/security_state.h"
 #include "components/tabs/public/tab_interface.h"
+#include "components/zoom/zoom_controller.h"
+#include "components/zoom/zoom_observer.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -56,12 +62,13 @@
 
 namespace browser_engine {
 
-// Watches a tab's current WebContents, its favicon and its star, and has the
-// BETab tell its delegate, coalesced to one tabDidUpdate: per task however
-// many events arrive (load progress fires often).
+// Watches a tab's current WebContents, its favicon, its star, its zoom and its
+// sound, and has the BETab tell its delegate, coalesced to one tabDidUpdate:
+// per task however many events arrive (load progress fires often).
 class TabObserver : public content::WebContentsObserver,
                     public favicon::FaviconDriverObserver,
-                    public BookmarkTabHelperObserver {
+                    public BookmarkTabHelperObserver,
+                    public zoom::ZoomObserver {
  public:
   explicit TabObserver(BEChromiumTab* tab) : tab_(tab) {}
   TabObserver(const TabObserver&) = delete;
@@ -71,6 +78,8 @@ class TabObserver : public content::WebContentsObserver,
   void StartObserving(content::WebContents* contents) {
     favicon_observation_.Reset();
     bookmark_observation_.Reset();
+    zoom_observation_.Reset();
+    audible_subscription_ = {};
     Observe(contents);
     if (!contents) {
       return;
@@ -85,6 +94,22 @@ class TabObserver : public content::WebContentsObserver,
     if (BookmarkTabHelper* helper =
             BookmarkTabHelper::FromWebContents(contents)) {
       bookmark_observation_.Observe(helper);
+    }
+    // What Chrome's zoom icon and bubble show (ZoomBubbleView): the page's
+    // ZoomController, which every tab has (TabHelpers::AttachTabHelpers()).
+    if (zoom::ZoomController* zoom_controller =
+            zoom::ZoomController::FromWebContents(contents)) {
+      zoom_observation_.Observe(zoom_controller);
+    }
+    // What the tab strip's speaker follows (TabAlertController): sound now,
+    // or until two seconds after it stopped. Every tab has one
+    // (TabHelpers::AttachTabHelpers()).
+    if (RecentlyAudibleHelper* audible_helper =
+            RecentlyAudibleHelper::FromWebContents(contents)) {
+      audible_subscription_ =
+          audible_helper->RegisterRecentlyAudibleChangedCallback(
+              base::BindRepeating(&TabObserver::OnRecentlyAudibleChanged,
+                                  base::Unretained(this)));
     }
   }
 
@@ -102,6 +127,10 @@ class TabObserver : public content::WebContentsObserver,
   void SendUpdate() {
     update_pending_ = false;
     [tab_ sendUpdate];
+  }
+
+  void OnRecentlyAudibleChanged(bool was_recently_audible) {
+    ScheduleUpdate();
   }
 
   // content::WebContentsObserver:
@@ -129,11 +158,14 @@ class TabObserver : public content::WebContentsObserver,
       base::TerminationStatus status) override {
     ScheduleUpdate();
   }
+  void DidUpdateAudioMutingState(bool muted) override { ScheduleUpdate(); }
   void WebContentsDestroyed() override {
-    // The favicon driver and the bookmark helper are WebContents user data;
-    // stop before they go.
+    // The favicon driver, the bookmark helper, the zoom controller and the
+    // audible helper are WebContents user data; stop before they go.
     favicon_observation_.Reset();
     bookmark_observation_.Reset();
+    zoom_observation_.Reset();
+    audible_subscription_ = {};
     [tab_ contentsDestroyed];
   }
 
@@ -152,6 +184,18 @@ class TabObserver : public content::WebContentsObserver,
     ScheduleUpdate();
   }
 
+  // zoom::ZoomObserver:
+  void OnZoomChanged(
+      const zoom::ZoomController::ZoomChangedEventData& data) override {
+    ScheduleUpdate();
+  }
+  void OnZoomControllerDestroyed(
+      zoom::ZoomController* zoom_controller) override {
+    // The controller tells its observers as its WebContents goes, which may
+    // be before WebContentsDestroyed() reaches us, and as it's deleted.
+    zoom_observation_.Reset();
+  }
+
   __weak BEChromiumTab* tab_;
   bool update_pending_ = false;
   base::ScopedObservation<favicon::FaviconDriver,
@@ -159,6 +203,9 @@ class TabObserver : public content::WebContentsObserver,
       favicon_observation_{this};
   base::ScopedObservation<BookmarkTabHelper, BookmarkTabHelperObserver>
       bookmark_observation_{this};
+  base::ScopedObservation<zoom::ZoomController, zoom::ZoomObserver>
+      zoom_observation_{this};
+  base::CallbackListSubscription audible_subscription_;
   base::WeakPtrFactory<TabObserver> weak_factory_{this};
 };
 
@@ -396,6 +443,32 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   return helper && helper->is_starred();
 }
 
+- (NSInteger)zoomPercent {
+  content::WebContents* contents = [self contents];
+  zoom::ZoomController* zoom_controller =
+      contents ? zoom::ZoomController::FromWebContents(contents) : nullptr;
+  // What Chrome's zoom bubble shows (ZoomBubbleView::UpdateZoomPercent()), and
+  // 100 at the default zoom, where Chrome shows no zoom icon.
+  if (!zoom_controller || zoom_controller->IsAtDefaultZoom()) {
+    return 100;
+  }
+  return zoom_controller->GetZoomPercent();
+}
+
+- (BOOL)isAudible {
+  content::WebContents* contents = [self contents];
+  RecentlyAudibleHelper* helper =
+      contents ? RecentlyAudibleHelper::FromWebContents(contents) : nullptr;
+  // The tab strip's speaker (TabAlertController::
+  // OnRecentlyAudibleStateChanged()), shown crossed out while muted.
+  return helper && helper->WasRecentlyAudible();
+}
+
+- (BOOL)isMuted {
+  content::WebContents* contents = [self contents];
+  return contents && contents->IsAudioMuted();
+}
+
 - (void)loadURL:(NSURL*)url {
   tabs::TabInterface* tab = [self tab];
   const GURL gurl = net::GURLWithNSURL(url);
@@ -470,6 +543,18 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   // Into the folder Chrome last used (bookmarks::GetParentForNewNodes()),
   // unless the user has bookmarked the address already.
   bookmarks::AddIfNotBookmarked(model, url, title);
+}
+
+- (void)setMuted:(BOOL)muted {
+  content::WebContents* contents = [self contents];
+  if (!contents || contents->IsAudioMuted() == static_cast<bool>(muted)) {
+    return;  // Keeps the reason Chrome recorded (an extension's, say).
+  }
+  // As the tab strip's audio button (BrowserTabStripController::
+  // ToggleTabAudioMute()), which records why (extensions read it in
+  // chrome.tabs' mutedInfo).
+  SetTabAudioMuted(contents, muted, TabMutedReason::kAudioIndicator,
+                   std::string());
 }
 
 @end

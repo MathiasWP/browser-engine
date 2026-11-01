@@ -1,0 +1,19 @@
+# browser_engine touch point: after an extension is installed and Chrome's
+# "added" dialog closes, Chrome points the toolbar at the new extension
+# (ShowPinnedByDefaultIPH) and dereferences the window's BrowserView without
+# checking for one. Our windows have none, so every install would crash there.
+
+diff --git a/chrome/browser/ui/extensions/extension_install_ui_desktop.cc b/chrome/browser/ui/extensions/extension_install_ui_desktop.cc
+--- a/chrome/browser/ui/extensions/extension_install_ui_desktop.cc
++++ b/chrome/browser/ui/extensions/extension_install_ui_desktop.cc
+@@ -160,7 +160,9 @@ void ExtensionInstallUIDesktop::OnInstallSuccess(
+               }
+               BrowserView* browser_view =
+                   BrowserView::GetBrowserViewForBrowser(browser_interface);
+-              if (!browser_view->toolbar()) {
++              // browser_engine: our windows have no BrowserView, and no
++              // toolbar to point at the new extension from.
++              if (!browser_view || !browser_view->toolbar()) {
+                 return;
+               }
+               ExtensionsToolbarDesktop* extensions_toolbar =

@@ -19,6 +19,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_engine/be_browser_window.h"
+#import "browser_engine/be_closed.h"
 #include "browser_engine/be_downloads.h"
 #import "browser_engine/be_preferences.h"
 #include "browser_engine/browser_engine_hooks.h"
@@ -329,6 +330,7 @@ id<BEEngineDelegate> GetEngineDelegate() {
   BOOL _started;
   NSMutableArray<NSURL*>* _pendingURLs;
   BEChromiumPreferences* _preferences;
+  std::unique_ptr<browser_engine::BERecentlyClosed> _recentlyClosed;
 }
 
 - (instancetype)init {
@@ -340,6 +342,22 @@ id<BEEngineDelegate> GetEngineDelegate() {
 
 - (id<BEEngineDelegate>)delegate {
   return _delegate;
+}
+
+// Watches the everyday profile's closed tabs and windows (the profile
+// dataFolder is), once Chromium runs; null before, or with no profile.
+- (browser_engine::BERecentlyClosed*)watchRecentlyClosed {
+  Profile* profile = _started && g_browser_process
+                         ? ProfileManager::GetLastUsedProfileIfLoaded()
+                         : nullptr;
+  if (!profile) {
+    return nullptr;
+  }
+  if (!_recentlyClosed) {
+    _recentlyClosed = std::make_unique<browser_engine::BERecentlyClosed>();
+  }
+  _recentlyClosed->ObserveProfile(profile);
+  return _recentlyClosed.get();
 }
 
 // MARK: BEEngine
@@ -370,6 +388,12 @@ id<BEEngineDelegate> GetEngineDelegate() {
     profile_dir = user_data_dir.Append(chrome::kInitialProfile);
   }
   return base::apple::FilePathToNSURL(profile_dir);
+}
+
+- (NSArray<id<BEClosedItem>>*)recentlyClosed {
+  browser_engine::BERecentlyClosed* recentlyClosed =
+      [self watchRecentlyClosed];
+  return recentlyClosed ? recentlyClosed->items() : @[];
 }
 
 - (id<BEPreferences>)preferences {
@@ -504,6 +528,10 @@ id<BEEngineDelegate> GetEngineDelegate() {
 
 - (void)browserDidStart {
   _started = YES;
+  // Chrome's History menu watches the closed tabs and windows from startup
+  // (HistoryMenuBridge), which loads the last session's: the list, and its
+  // icons, are ready when the app's menu first opens.
+  [self watchRecentlyClosed];
   if (_pendingURLs.count) {
     NSArray<NSURL*>* urls = [_pendingURLs copy];
     [_pendingURLs removeAllObjects];

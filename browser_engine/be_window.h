@@ -46,6 +46,10 @@ NS_ASSUME_NONNULL_BEGIN
 // window closes, keeping the crash unacknowledged as the open bubble does, and
 // tells the delegate windowDidChangeRestoreOffer: on a later task.
 - (void)offerRestoreAfterCrash;
+// The status bubble's text changed (BEBrowserWindow::GetStatusText()). On a
+// later task, tells the delegate windowDidChangeStatus: if statusText is no
+// longer what it last heard.
+- (void)statusTextDidChange;
 // The window is going: tells the delegate, then forgets the C++ window. Every
 // method is a no-op afterwards.
 - (void)browserWindowWillClose;
@@ -55,6 +59,13 @@ NS_ASSUME_NONNULL_BEGIN
 // New suggestions for the text last given to
 // suggestForText:allowsInlineCompletion:.
 - (void)suggestionsDidUpdate:(NSArray<id<BESuggestion>>*)suggestions;
+
+// Called by browser_engine::BEExtensions.
+
+// What an extension's button shows may have changed, or which buttons there
+// are, or the active tab. On a later task, at most once per task, tells the
+// delegate windowDidUpdateExtensionActions:.
+- (void)extensionActionsDidChange;
 
 @end
 

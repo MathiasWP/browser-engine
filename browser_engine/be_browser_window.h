@@ -39,9 +39,11 @@ namespace browser_engine {
 
 class BEAutofillBubbleHandler;
 class BEExclusiveAccessContext;
+class BEExtensions;
 class BEFindBarOwner;
 class BELocationBar;
 class BEModalDialogHost;
+class BEStatusBubble;
 
 class BEBrowserWindow : public BrowserWindow,
                         public TabStripModelObserver,
@@ -90,6 +92,17 @@ class BEBrowserWindow : public BrowserWindow,
   // window, which has no app menu to anchor it to: the app offers the restore
   // instead (BEChromiumWindow).
   void OfferRestoreAfterCrash();
+
+  // The extensions' toolbar buttons, which the app shows. Null for guest
+  // profiles (as Chrome's toolbar has none), before OnBrowserInitialized()
+  // and once the window is closing.
+  BEExtensions* extensions() const { return extensions_.get(); }
+
+  // What Chrome's status bubble shows (be_browser_window_parts.h); empty for
+  // nothing.
+  const std::u16string& GetStatusText() const;
+  // The status bubble's text changed.
+  void OnStatusTextChanged();
 
   // BrowserWindow:
   gfx::NativeWindow GetNativeWindow() const override;
@@ -291,6 +304,12 @@ class BEBrowserWindow : public BrowserWindow,
   std::unique_ptr<BEExclusiveAccessContext> exclusive_access_context_;
   std::unique_ptr<BEFindBarOwner> find_bar_owner_;
   std::unique_ptr<BEAutofillBubbleHandler> autofill_bubble_handler_;
+  // For the window's life: Chrome may ask for it while the tabs close.
+  std::unique_ptr<BEStatusBubble> status_bubble_;
+
+  // Made in OnBrowserInitialized(), destroyed first thing as the window goes,
+  // before the widget and its FocusManager (see be_extensions.h).
+  std::unique_ptr<BEExtensions> extensions_;
 
   // Lets DevTools dock in our window (DevToolsWindow::Create() asks for it).
   // It has none of BrowserView's views to lay out: BETab hands docked DevTools

@@ -2,8 +2,8 @@
 // a location bar, an exclusive-access (fullscreen) context, a host for
 // tab-modal dialogs and the owner of Chrome's find bar. Each is a copy of
 // Webium's at M156 (chrome/browser/ui/webui_browser/), pointed at our window
-// instead of the WebUI one. The autofill bubble handler is ours: Webium has
-// none.
+// instead of the WebUI one. The autofill bubble handler and the status bubble
+// are ours: Webium has neither.
 
 #ifndef BROWSER_ENGINE_BE_BROWSER_WINDOW_PARTS_H_
 #define BROWSER_ENGINE_BE_BROWSER_WINDOW_PARTS_H_
@@ -19,6 +19,7 @@
 #include "chrome/browser/ui/autofill/autofill_bubble_handler.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
+#include "chrome/browser/ui/status_bubble.h"
 #include "chrome/browser/ui/views/exclusive_access/exclusive_access_bubble_views_context.h"
 #include "chrome/browser/ui/views/find_bar_owner.h"
 #include "components/signin/public/base/signin_buildflags.h"
@@ -27,6 +28,7 @@
 
 class BrowserWindowInterface;
 class ExclusiveAccessBubbleViews;
+class GURL;
 
 namespace browser_engine {
 
@@ -181,6 +183,39 @@ class BEFindBarOwner : public FindBarOwner {
 
  private:
   const raw_ptr<BEBrowserWindow> window_;
+};
+
+// Chrome's status bubble, whose text the app shows over the bottom of its page
+// (BEWindow.statusText): the address of the link under the pointer, or what a
+// loading page waits for ("Waiting for example.com..."). One for the window
+// and its active page, where BrowserView has a StatusBubbleViews over each
+// visible page's ContentsWebView (two in a split view), which is what
+// BrowserWebContentsDelegate looks for to route a link's address: patch 21
+// routes the active page's here instead. As in StatusBubbleViews, a link wins
+// over the status, and leaving the link shows the status again.
+class BEStatusBubble : public StatusBubble {
+ public:
+  explicit BEStatusBubble(BEBrowserWindow* window);
+  BEStatusBubble(const BEStatusBubble&) = delete;
+  BEStatusBubble& operator=(const BEStatusBubble&) = delete;
+  ~BEStatusBubble() override;
+
+  // The link's address if there is one, else the status; empty for nothing.
+  const std::u16string& GetText() const;
+
+  // StatusBubble:
+  void SetStatus(const std::u16string& status) override;
+  void SetURL(const GURL& url) override;
+  void Hide() override;
+  void MouseMoved(bool left_content) override;
+
+ private:
+  // Tells the window if GetText() changed.
+  void SetTexts(std::u16string status_text, std::u16string url_text);
+
+  const raw_ptr<BEBrowserWindow> window_;
+  std::u16string status_text_;
+  std::u16string url_text_;
 };
 
 // Chrome's autofill and payments bubbles (save or update an address, save a

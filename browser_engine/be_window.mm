@@ -12,7 +12,9 @@
 #include "base/task/sequenced_task_runner.h"
 #include "browser_engine/be_autocomplete.h"
 #include "browser_engine/be_browser_window.h"
+#import "browser_engine/be_closed.h"
 #import "browser_engine/be_engine.h"
+#import "browser_engine/be_extensions.h"
 #import "browser_engine/be_tab.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
@@ -135,6 +137,11 @@ int CommandIdForCommand(BECommand command) {
   // saves no new one, until it goes. The bubble's delegate holds the same.
   // Null if ExitTypeService had stopped waiting already.
   std::unique_ptr<ExitTypeService::CrashedLock> _crashedLock;
+  // statusText as the delegate last heard it.
+  NSString* _status;
+  // A task to tell the delegate is on its way.
+  BOOL _statusUpdatePending;
+  BOOL _extensionActionsUpdatePending;
 }
 
 @synthesize delegate = _delegate;
@@ -144,6 +151,7 @@ int CommandIdForCommand(BECommand command) {
   if ((self = [super init])) {
     _window = window;
     _browser = window->browser()->GetWeakPtr();
+    _status = @"";
   }
   return self;
 }
@@ -193,6 +201,29 @@ int CommandIdForCommand(BECommand command) {
       FROM_HERE, base::BindOnce(^{
         [weakSelf sendRestoreOfferIfChanged];
       }));
+}
+
+// Tells the delegate if statusText changed since it last heard.
+- (void)sendStatusIfChanged {
+  _statusUpdatePending = NO;
+  // Nothing after windowWillClose:.
+  if (!_window) {
+    return;
+  }
+  NSString* status = [self statusText];
+  if ([status isEqualToString:_status]) {
+    return;
+  }
+  _status = status;
+  [_delegate windowDidChangeStatus:self];
+}
+
+- (void)sendExtensionActionsUpdate {
+  _extensionActionsUpdatePending = NO;
+  // Nothing after windowWillClose:.
+  if (_window) {
+    [_delegate windowDidUpdateExtensionActions:self];
+  }
 }
 
 // MARK: Called by BEBrowserWindow
@@ -296,6 +327,21 @@ int CommandIdForCommand(BECommand command) {
   [self restoreOfferDidChange];
 }
 
+- (void)statusTextDidChange {
+  // Chrome sets the bubble from inside its own updates (a link under the
+  // pointer, a load's progress), often several times a task: look once, on a
+  // task of our own, and tell the app only of a real change.
+  if (_statusUpdatePending) {
+    return;
+  }
+  _statusUpdatePending = YES;
+  __weak BEChromiumWindow* weakSelf = self;
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(^{
+        [weakSelf sendStatusIfChanged];
+      }));
+}
+
 - (void)browserWindowWillClose {
   if (!_window) {
     return;
@@ -321,6 +367,21 @@ int CommandIdForCommand(BECommand command) {
   if (_window) {
     [_delegate window:self didUpdateSuggestions:suggestions];
   }
+}
+
+- (void)extensionActionsDidChange {
+  // From inside Chrome's models' notifications, where the app mustn't read
+  // them back (the view models are still changing), and often for several
+  // actions at once.
+  if (_extensionActionsUpdatePending) {
+    return;
+  }
+  _extensionActionsUpdatePending = YES;
+  __weak BEChromiumWindow* weakSelf = self;
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(^{
+        [weakSelf sendExtensionActionsUpdate];
+      }));
 }
 
 // MARK: BEWindow
@@ -469,6 +530,31 @@ int CommandIdForCommand(BECommand command) {
     params.tabstrip_add_types |= AddTabTypes::ADD_FORCE_INDEX;
   }
   Navigate(&params);
+}
+
+- (NSArray<id<BEExtensionAction>>*)extensionActions {
+  // None for guest profiles, as in Chrome, and none after windowWillClose:.
+  browser_engine::BEExtensions* extensions =
+      _window ? _window->extensions() : nullptr;
+  return extensions ? extensions->GetActions() : @[];
+}
+
+- (void)runExtensionAction:(NSString*)identifier fromRect:(NSRect)rect {
+  if (browser_engine::BEExtensions* extensions =
+          _window ? _window->extensions() : nullptr) {
+    extensions->Run(base::SysNSStringToUTF8(identifier), rect);
+  }
+}
+
+- (void)restoreClosedItem:(int32_t)identifier {
+  // The app's History menu calls this, never from inside a tab-strip change.
+  if (BrowserWindowInterface* browser = [self browser]) {
+    browser_engine::RestoreClosedItem(browser, identifier);
+  }
+}
+
+- (NSString*)statusText {
+  return _window ? base::SysUTF16ToNSString(_window->GetStatusText()) : @"";
 }
 
 - (void)suggestForText:(NSString*)text

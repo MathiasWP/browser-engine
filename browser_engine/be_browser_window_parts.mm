@@ -5,6 +5,7 @@
 #include "base/functional/bind.h"
 #include "base/no_destructor.h"
 #include "base/notimplemented.h"
+#include "base/strings/escape.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_engine/be_browser_window.h"
 #include "chrome/browser/profiles/profile.h"
@@ -23,6 +24,7 @@
 #include "chrome/browser/ui/views/translate/translate_bubble_controller.h"
 #include "chrome/browser/ui/window_metadata/window_metadata_controller.h"
 #include "components/strings/grit/components_strings.h"
+#include "components/url_formatter/url_formatter.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/types/display_constants.h"
@@ -31,6 +33,7 @@
 #include "ui/views/bubble/bubble_border.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/client_view.h"
+#include "url/gurl.h"
 
 namespace browser_engine {
 
@@ -438,6 +441,48 @@ void BEFindBarOwner::CloseOverlappingBubbles() {
   if (TranslateBubbleController* controller =
           TranslateBubbleController::From(window_->browser())) {
     controller->CloseBubble();
+  }
+}
+
+// BEStatusBubble --------------------------------------------------------------
+
+BEStatusBubble::BEStatusBubble(BEBrowserWindow* window) : window_(window) {}
+
+BEStatusBubble::~BEStatusBubble() = default;
+
+const std::u16string& BEStatusBubble::GetText() const {
+  return url_text_.empty() ? status_text_ : url_text_;
+}
+
+void BEStatusBubble::SetStatus(const std::u16string& status) {
+  SetTexts(status, url_text_);
+}
+
+void BEStatusBubble::SetURL(const GURL& url) {
+  // Formatted as StatusBubbleViews formats it (url_formatter::ElideUrl()), but
+  // whole: the app truncates it to fit.
+  SetTexts(status_text_,
+           url.is_empty()
+               ? std::u16string()
+               : url_formatter::FormatUrl(
+                     url, url_formatter::kFormatUrlOmitDefaults,
+                     base::UnescapeRule::SPACES, nullptr, nullptr, nullptr));
+}
+
+void BEStatusBubble::Hide() {
+  SetTexts(std::u16string(), std::u16string());
+}
+
+void BEStatusBubble::MouseMoved(bool left_content) {
+}  // The app places the text; nothing moves out of the pointer's way.
+
+void BEStatusBubble::SetTexts(std::u16string status_text,
+                              std::u16string url_text) {
+  const std::u16string text = GetText();
+  status_text_ = std::move(status_text);
+  url_text_ = std::move(url_text);
+  if (GetText() != text) {
+    window_->OnStatusTextChanged();
   }
 }
 

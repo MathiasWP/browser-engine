@@ -10,6 +10,7 @@
 #include "base/functional/bind.h"
 #include "base/notimplemented.h"
 #include "browser_engine/be_browser_window_parts.h"
+#import "browser_engine/be_extensions.h"
 #import "browser_engine/be_tab.h"
 #import "browser_engine/be_window.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -272,6 +273,7 @@ BEBrowserWindow::BEBrowserWindow(BrowserWindowInterface* browser)
       this, browser_->GetUnownedUserDataHost());
   autofill_bubble_handler_ =
       std::make_unique<BEAutofillBubbleHandler>(browser_.get());
+  status_bubble_ = std::make_unique<BEStatusBubble>(this);
   // DevTools docks only where the browser has a DevtoolsUIController
   // (DevToolsWindow::Create()); BrowserWindowFeatures makes one for
   // BrowserView alone. Ours gets no ContentsContainerViews, so it lays nothing
@@ -294,6 +296,11 @@ BEBrowserWindow::~BEBrowserWindow() {
   // might still read is alive.
   [objc_window_ browserWindowWillClose];
   objc_window_ = nil;
+
+  // While the widget, its FocusManager and the browser's features are all
+  // there: an open extension popup closes, the extensions' shortcuts go, and
+  // the window stops being an ExtensionsContainer.
+  extensions_.reset();
 
   // Before the FullscreenController goes with the features below.
   fullscreen_subscription_ = {};
@@ -344,6 +351,12 @@ void BEBrowserWindow::OnBrowserInitialized() {
     return;
   }
   objc_window_ = [[BEChromiumWindow alloc] initWithBrowserWindow:this];
+  // The extensions' buttons, as BrowserView's toolbar makes its extensions
+  // container (none for guest profiles), before the app hears of the window
+  // and may read them.
+  if (!browser_->GetProfile()->IsGuestSession()) {
+    extensions_ = std::make_unique<BEExtensions>(this, objc_window_);
+  }
   // InitPostWindowConstruction made the ExclusiveAccessManager after us and
   // before this hook. Its FullscreenController tells its subscribers about
   // every change, from a posted task: a page entering or leaving fullscreen
@@ -414,6 +427,14 @@ void BEBrowserWindow::OfferRestoreAfterCrash() {
   [objc_window_ offerRestoreAfterCrash];
 }
 
+const std::u16string& BEBrowserWindow::GetStatusText() const {
+  return status_bubble_->GetText();
+}
+
+void BEBrowserWindow::OnStatusTextChanged() {
+  [objc_window_ statusTextDidChange];
+}
+
 void BEBrowserWindow::DeleteBrowserWindow() {
   delete this;
 }
@@ -463,7 +484,10 @@ void BEBrowserWindow::SetTopControlsGestureScrollInProgress(bool in_progress) {
 }  // No sliding top controls.
 
 std::vector<StatusBubble*> BEBrowserWindow::GetStatusBubbles() {
-  return {};  // Milestone 2: the hover-URL status goes to the app.
+  // One, for the active page, whose text the app shows (statusText). Chrome
+  // gives the first bubble the active tab's load status, and patch 21 gives
+  // it the active page's links.
+  return {status_bubble_.get()};
 }
 
 void BEBrowserWindow::UpdateTitleBar() {
