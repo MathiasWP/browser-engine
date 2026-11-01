@@ -14,18 +14,19 @@ diff --git a/chrome/browser/preloading/preloading_prefs.cc b/chrome/browser/prel
  #include "chrome/browser/battery/battery_saver.h"
  #include "chrome/browser/data_saver/data_saver.h"
  #include "chrome/browser/prefetch/pref_names.h"
-@@ -14,9 +15,14 @@
+@@ -14,9 +15,15 @@
  namespace prefetch {
  void RegisterPredictionOptionsProfilePrefs(
      user_prefs::PrefRegistrySyncable* registry) {
 +  // browser_engine: inside the app, Chrome's standard preloading (resolving,
-+  // connecting to and prerendering likely next pages) is on, as in Chrome.
-+  // ungoogled-chromium turns it off by default; the setting stays.
++  // connecting to and prerendering likely next pages) is on, as in Chrome:
++  // Chrome's own default, which ungoogled-chromium changed to kDisabled (and
++  // which means kStandard). The setting stays.
    registry->RegisterIntegerPref(
        prefs::kNetworkPredictionOptions,
 -      static_cast<int>(NetworkPredictionOptions::kDefault),
 +      static_cast<int>(browser_engine::IsEmbedded()
-+                           ? NetworkPredictionOptions::kStandard
++                           ? NetworkPredictionOptions::kWifiOnlyDeprecated
 +                           : NetworkPredictionOptions::kDefault),
        user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
  }
