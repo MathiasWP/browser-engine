@@ -35,6 +35,12 @@ class Hooks {
   virtual views::Widget* GetWidgetForBrowser(
       BrowserWindowInterface* browser) = 0;
 
+  // session_crashed_bubble_view.cc: after a crash, Chrome would show its
+  // session-crashed bubble ("Restore pages?") on `browser` now, but `browser`
+  // has no BrowserView to anchor it to. Every check the bubble makes first
+  // (not off the record, the browser still open, an active tab) has passed.
+  virtual void ShowSessionCrashedBubble(BrowserWindowInterface* browser) = 0;
+
   // chrome_browser_main_mac.mm: what AppController does at these two points,
   // since the app (not AppController) is NSApp's delegate when embedded.
   virtual void PreCreateThreads() = 0;

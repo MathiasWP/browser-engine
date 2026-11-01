@@ -1,0 +1,33 @@
+# browser_engine touch point: after a crash, Chrome offers to restore the last
+# session in its session-crashed bubble ("Restore pages?"), anchored to the app
+# menu. For a browser without a BrowserView, ShowBubble() returns before the
+# bubble takes ExitTypeService's crashed lock, so in our windows nothing showed
+# and nothing could answer: Chrome kept the crashed session, saved no new one,
+# and left profile.exit_type "Crashed" for good. Inside the app the offer goes
+# to our window (be_window.mm), which answers as the bubble's Restore and
+# close do.
+
+diff --git a/chrome/browser/ui/views/session_crashed_bubble_view.cc b/chrome/browser/ui/views/session_crashed_bubble_view.cc
+--- a/chrome/browser/ui/views/session_crashed_bubble_view.cc
++++ b/chrome/browser/ui/views/session_crashed_bubble_view.cc
+@@ -15,6 +15,7 @@
+ #include "base/memory/raw_ptr.h"
+ #include "base/metrics/histogram_macros.h"
+ #include "base/scoped_observation.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "build/branding_buildflags.h"
+ #include "build/build_config.h"
+ #include "chrome/browser/lifetime/browser_shutdown.h"
+@@ -282,6 +283,12 @@ views::BubbleDialogDelegate* SessionCrashedBubbleView::ShowBubble(
+   // TODO(webium): WebUI browser does not use BrowserView. Make an WebUI anchor
+   // for the bubble.
+   if (!browser_view) {
++    // browser_engine: nor do our windows, which have no app menu to anchor
++    // the bubble to. Our window offers the restore to the app instead, and
++    // answers as the bubble's Restore and close do.
++    if (browser_engine::IsEmbedded()) {
++      browser_engine::GetHooks()->ShowSessionCrashedBubble(browser);
++    }
+     return nullptr;
+   }
+ 

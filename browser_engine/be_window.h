@@ -41,6 +41,11 @@ NS_ASSUME_NONNULL_BEGIN
 // task, tells the delegate windowDidChangePageFullscreen: if isPageFullscreen
 // is no longer what it last heard.
 - (void)fullscreenStateDidChange;
+// After a crash, Chrome would show its session-crashed bubble ("Restore
+// pages?") on this window. Offers the restore until the app answers or the
+// window closes, keeping the crash unacknowledged as the open bubble does, and
+// tells the delegate windowDidChangeRestoreOffer: on a later task.
+- (void)offerRestoreAfterCrash;
 // The window is going: tells the delegate, then forgets the C++ window. Every
 // method is a no-op afterwards.
 - (void)browserWindowWillClose;

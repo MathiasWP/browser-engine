@@ -410,6 +410,10 @@ void BEBrowserWindow::RequestLocationFocus() {
   [objc_window_ wantsLocationFocus];
 }
 
+void BEBrowserWindow::OfferRestoreAfterCrash() {
+  [objc_window_ offerRestoreAfterCrash];
+}
+
 void BEBrowserWindow::DeleteBrowserWindow() {
   delete this;
 }

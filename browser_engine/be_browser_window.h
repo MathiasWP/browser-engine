@@ -86,6 +86,11 @@ class BEBrowserWindow : public BrowserWindow,
   // The location bar or Chrome asked for the address field to take focus.
   void RequestLocationFocus();
 
+  // After a crash, Chrome would show its session-crashed bubble on this
+  // window, which has no app menu to anchor it to: the app offers the restore
+  // instead (BEChromiumWindow).
+  void OfferRestoreAfterCrash();
+
   // BrowserWindow:
   gfx::NativeWindow GetNativeWindow() const override;
   bool IsOnCurrentWorkspace() const override;

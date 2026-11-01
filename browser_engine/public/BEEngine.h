@@ -15,7 +15,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 5
+#define BE_API_VERSION 6
 
 @protocol BEWindow;
 @protocol BETab;
@@ -234,6 +234,8 @@ NS_SWIFT_UI_ACTOR
 - (void)windowWillClose:(id<BEWindow>)window;
 /// A page took the whole window or gave it back: `isPageFullscreen` changed. (Version 5.)
 - (void)windowDidChangePageFullscreen:(id<BEWindow>)window;
+/// `offersRestoreAfterCrash` changed. (Version 6.)
+- (void)windowDidChangeRestoreOffer:(id<BEWindow>)window;
 @end
 
 NS_SWIFT_UI_ACTOR
@@ -251,6 +253,14 @@ NS_SWIFT_UI_ACTOR
 /// A page has the whole window (a video's full screen, `Element.requestFullscreen()`), so the app
 /// hides everything but the page. Escape or the page gives it back. (Chrome: tab fullscreen)
 @property (nonatomic, readonly) BOOL isPageFullscreen;
+/// The browser didn't quit properly last time, and Chrome offers to bring back what was open.
+/// Until the user answers, Chrome keeps that session and saves no new one. (Chrome: the
+/// session-crashed bubble. Version 6.)
+@property (nonatomic, readonly) BOOL offersRestoreAfterCrash;
+/// Brings back the windows and tabs that were open, as the bubble's Restore does.
+- (void)restoreAfterCrash;
+/// Lets the old session go, as closing the bubble does.
+- (void)declineRestoreAfterCrash;
 
 - (void)runCommand:(BECommand)command;
 - (BOOL)canRunCommand:(BECommand)command;

@@ -116,6 +116,14 @@ class EngineHooks : public Hooks {
     return window ? window->widget() : nullptr;
   }
 
+  void ShowSessionCrashedBubble(BrowserWindowInterface* browser) override {
+    // Our windows have no app menu to anchor the bubble to: the window offers
+    // the restore to the app instead.
+    if (BEBrowserWindow* window = BEBrowserWindow::FromBrowser(browser)) {
+      window->OfferRestoreAfterCrash();
+    }
+  }
+
   void PreCreateThreads() override {
     // AppController's keep-alive: on the Mac the browser keeps running with
     // no windows open, until the user quits.

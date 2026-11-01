@@ -8,7 +8,7 @@ in its place is `BEBrowserWindow`, Chrome's third production `BrowserWindow` aft
 `BrowserView` and Webium's `WebUIBrowserWindow`, whose shape it follows at M156.
 
 The app and the engine meet only in `public/BEEngine.h` (a verbatim copy of the app's
-`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 5). The framework exports
+`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 6). The framework exports
 one function, `BEEngineCreate`.
 
 First draft, 30 Oct 2026, against Chromium 156.0.8078.47. Nothing here has been compiled
@@ -122,6 +122,7 @@ patches), and checked with `git apply --check` the way the build applies them.
 | 16 | `chrome/browser/prefs/session_startup_pref.cc` | Inside the app, "Continue where you left off" is the startup default (`GetDefaultStartupType()`), as Mac apps restore their windows |
 | 17 | `chrome/browser/renderer_context_menu/render_view_context_menu.cc` | Right-click items for what our windows don't have yet: "Open in Reading Mode" (Chrome's side panel; nothing happened) and "Open link in split view" (a split the app never showed) |
 | 18 | `components/password_manager/core/browser/password_manager.cc` | Inside the app, Chrome offers to save passwords, as Chrome and Safari do: ungoogled-chromium's inox defaults turn `credentials_enable_service` off. The setting stays |
+| 19 | `chrome/browser/ui/views/session_crashed_bubble_view.cc` | After a crash Chrome waits for its "Restore pages?" bubble to be answered, keeping the old session and saving no new one. The bubble needs a BrowserView, so for our window `ShowBubble()` hands the offer to the window (`Hooks::ShowSessionCrashedBubble`), which offers it to the app (`BEWindow.offersRestoreAfterCrash`) |
 
 **Webium's other `BrowserWindowFeatures` arms, and why there's no patch for them:**
 - `BrowserElementsWebUiBrowser`: with Webium off, features make `BrowserElementsViewsImpl`;
@@ -208,6 +209,9 @@ tree in `github_fetch_resources.sh`; the iterate script already skips applied pa
   `TabStripModelObserver::OnTabStripModelChanged()`. Activating, moving or closing a tab
   there, or running a command that does, trips `TabStripModel`'s re-entrancy `CHECK`
   (`tab_strip_model.cc`). Post it to the next turn of the run loop instead.
+- **Answer the restore offer.** After a crash, `offersRestoreAfterCrash` is set on the startup
+  window; until the app calls `restoreAfterCrash` or `declineRestoreAfterCrash`, Chrome saves no
+  new session.
 - **Arguments.** Suggested: `--no-first-run --no-default-browser-check
   --disable-features=Glic` (below).
 

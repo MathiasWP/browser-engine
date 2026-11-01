@@ -3,6 +3,7 @@
 #import <AppKit/AppKit.h>
 
 #include <memory>
+#include <utility>
 
 #include "base/check.h"
 #include "base/functional/bind.h"
@@ -14,7 +15,10 @@
 #import "browser_engine/be_engine.h"
 #import "browser_engine/be_tab.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/sessions/exit_type_service.h"
+#include "chrome/browser/sessions/session_restore.h"
 #include "chrome/browser/tab_list/tab_removed_reason.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
@@ -122,6 +126,15 @@ int CommandIdForCommand(BECommand command) {
   std::unique_ptr<browser_engine::BEAutocomplete> _autocomplete;
   // isPageFullscreen as the delegate last heard it.
   BOOL _pageFullscreen;
+  // From Chrome's offer to restore after a crash until the app answers or the
+  // window closes.
+  BOOL _offersRestoreAfterCrash;
+  // offersRestoreAfterCrash as the delegate last heard it.
+  BOOL _restoreOffer;
+  // While the offer stands: ExitTypeService keeps the crashed session, and
+  // saves no new one, until it goes. The bubble's delegate holds the same.
+  // Null if ExitTypeService had stopped waiting already.
+  std::unique_ptr<ExitTypeService::CrashedLock> _crashedLock;
 }
 
 @synthesize delegate = _delegate;
@@ -157,6 +170,29 @@ int CommandIdForCommand(BECommand command) {
   }
   _pageFullscreen = pageFullscreen;
   [_delegate windowDidChangePageFullscreen:self];
+}
+
+// Tells the delegate if offersRestoreAfterCrash changed since it last heard.
+- (void)sendRestoreOfferIfChanged {
+  // Nothing after windowWillClose:.
+  if (!_window) {
+    return;
+  }
+  if (_offersRestoreAfterCrash == _restoreOffer) {
+    return;
+  }
+  _restoreOffer = _offersRestoreAfterCrash;
+  [_delegate windowDidChangeRestoreOffer:self];
+}
+
+// The offer came or went: tell the delegate on a later task. Chrome makes the
+// offer while the tab strip notifies its observers, where the app mustn't act.
+- (void)restoreOfferDidChange {
+  __weak BEChromiumWindow* weakSelf = self;
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(^{
+        [weakSelf sendRestoreOfferIfChanged];
+      }));
 }
 
 // MARK: Called by BEBrowserWindow
@@ -243,6 +279,23 @@ int CommandIdForCommand(BECommand command) {
       }));
 }
 
+- (void)offerRestoreAfterCrash {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser || _offersRestoreAfterCrash) {
+    return;
+  }
+  _offersRestoreAfterCrash = YES;
+  // What the bubble's delegate takes when it's made
+  // (session_crashed_bubble_view.cc). If a window opened outside startup has
+  // acknowledged the crash already there's no lock, and the offer stands
+  // anyway, as the bubble would.
+  if (ExitTypeService* exit_type_service =
+          ExitTypeService::GetInstanceForProfile(browser->GetProfile())) {
+    _crashedLock = exit_type_service->CreateCrashedLock();
+  }
+  [self restoreOfferDidChange];
+}
+
 - (void)browserWindowWillClose {
   if (!_window) {
     return;
@@ -254,6 +307,14 @@ int CommandIdForCommand(BECommand command) {
   // its profile go, which the controller's providers read. A pending update
   // dies with it.
   _autocomplete.reset();
+  // An offer still open goes with the window, as the bubble goes with its
+  // browser: unless Chrome is shutting down, the crash counts as acknowledged
+  // (ExitTypeService::CheckUserAckedCrash()). UNVERIFIED: that runs inside
+  // ~Browser, where SessionService then rebuilds its commands from the open
+  // browsers; it skips one without tabs or a window (session_service_base.cc),
+  // read, not run.
+  _offersRestoreAfterCrash = NO;
+  _crashedLock.reset();
 }
 
 - (void)suggestionsDidUpdate:(NSArray<id<BESuggestion>>*)suggestions {
@@ -303,6 +364,42 @@ int CommandIdForCommand(BECommand command) {
 
 - (BOOL)isPageFullscreen {
   return _window && _window->IsPageFullscreen();
+}
+
+- (BOOL)offersRestoreAfterCrash {
+  return _offersRestoreAfterCrash;
+}
+
+- (void)restoreAfterCrash {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser || !_offersRestoreAfterCrash) {
+    return;
+  }
+  _offersRestoreAfterCrash = NO;
+  [self restoreOfferDidChange];
+  // SessionCrashedBubbleDelegate::RestorePreviousSession(): the lock goes
+  // only once restoring has begun, so ExitTypeService waits for the restore
+  // to finish before it lets the old session go.
+  std::unique_ptr<ExitTypeService::CrashedLock> lock = std::move(_crashedLock);
+  if (browser_shutdown::HasShutdownStarted() || browser->IsDeleteScheduled()) {
+    // A late answer: the bubble takes it as handled and restores nothing.
+    return;
+  }
+  // The last session's first window into this one (in place of a lone New
+  // Tab page), the others as new windows. Asynchronous: the tabs arrive
+  // later, as tab events.
+  SessionRestore::RestoreSessionAfterCrash(browser);
+}
+
+- (void)declineRestoreAfterCrash {
+  if (!_window || !_offersRestoreAfterCrash) {
+    return;
+  }
+  _offersRestoreAfterCrash = NO;
+  // As when the bubble closes: with no lock left, ExitTypeService takes the
+  // crash as acknowledged, and Chrome saves the session from now on.
+  _crashedLock.reset();
+  [self restoreOfferDidChange];
 }
 
 - (void)runCommand:(BECommand)command {
