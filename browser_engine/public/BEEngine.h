@@ -15,12 +15,13 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 2
+#define BE_API_VERSION 3
 
 @protocol BEWindow;
 @protocol BETab;
 @protocol BEPreferences;
 @protocol BESuggestion;
+@protocol BEDownload;
 
 /// Browser commands, run the way Chrome runs them (so ⌘-click and keyboard modifiers, tab
 /// restore and extensions all see them). The engine maps them to Chrome's command ids.
@@ -79,6 +80,9 @@ NS_SWIFT_UI_ACTOR
 /// Chromium made a browser window: at startup, for ⌘N, for a page or an extension. The app fills
 /// the window with its own views and keeps it until `windowWillClose:`.
 - (void)engineDidCreateWindow:(id<BEWindow>)window;
+/// A download started or changed: progress, a new name, finished, failed. For downloads in any
+/// window, private ones included. (Version 3.)
+- (void)engineDidUpdateDownload:(id<BEDownload>)download;
 @end
 
 NS_SWIFT_UI_ACTOR
@@ -154,6 +158,41 @@ NS_SWIFT_UI_ACTOR
 /// Completes what was typed, selected after the cursor; empty for none. Only the first
 /// suggestion has one.
 @property (nonatomic, readonly, copy) NSString *inlineCompletion;
+@end
+
+// MARK: Downloads
+
+/// Where a download is. (Chrome: `download::DownloadItem::DownloadState`)
+typedef NS_ENUM(NSInteger, BEDownloadState) {
+    BEDownloadStateInProgress,
+    BEDownloadStateComplete,
+    BEDownloadStateCancelled,
+    /// Failed (network, disk); Chrome may resume it.
+    BEDownloadStateInterrupted,
+};
+
+/// A file Chrome is saving or has saved. (Chrome: `download::DownloadItem`)
+NS_SWIFT_UI_ACTOR
+@protocol BEDownload <NSObject>
+/// Stable for the download's life.
+@property (nonatomic, readonly) uint32_t identifier;
+/// Whether a private window's profile downloads it.
+@property (nonatomic, readonly) BOOL isPrivate;
+@property (nonatomic, readonly, copy, nullable) NSURL *sourceURL;
+/// Where the file goes. Nil until Chrome has picked the name; final once complete.
+@property (nonatomic, readonly, copy, nullable) NSURL *fileURL;
+@property (nonatomic, readonly) int64_t receivedBytes;
+/// -1 while the size isn't known.
+@property (nonatomic, readonly) int64_t totalBytes;
+@property (nonatomic, readonly) BEDownloadState state;
+/// Chrome holds the file back until the user keeps it: dangerous, or fetched insecurely. Chrome's
+/// reason, in its words, is in `warning`.
+@property (nonatomic, readonly) BOOL needsApproval;
+@property (nonatomic, readonly, copy) NSString *warning;
+/// Keeps a held-back file. (Chrome: `ValidateDangerousDownload` / `ValidateInsecureDownload`)
+- (void)approve;
+/// Stops it, or discards a held-back file.
+- (void)cancel;
 @end
 
 // MARK: Windows

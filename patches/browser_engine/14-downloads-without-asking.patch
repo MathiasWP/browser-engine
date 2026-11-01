@@ -1,0 +1,30 @@
+# browser_engine touch point: inside the app, downloads go to the Downloads folder
+# without asking, as in Chrome and Safari. ungoogled-chromium's iridium patch
+# (prefs-always-prompt-for-download-directory-by-defaul.patch) asks by default;
+# the "Ask where to save each file" setting is unchanged.
+
+diff --git a/chrome/browser/download/download_prefs.cc b/chrome/browser/download/download_prefs.cc
+--- a/chrome/browser/download/download_prefs.cc
++++ b/chrome/browser/download/download_prefs.cc
+@@ -21,6 +21,7 @@
+ #include "base/strings/string_util.h"
+ #include "base/strings/sys_string_conversions.h"
+ #include "base/strings/utf_string_conversions.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "build/build_config.h"
+ #include "chrome/browser/download/chrome_download_manager_delegate.h"
+ #include "chrome/browser/download/download_core_service_factory.h"
+@@ -351,9 +352,12 @@ DownloadPrefs::~DownloadPrefs() = default;
+ // static
+ void DownloadPrefs::RegisterProfilePrefs(
+     user_prefs::PrefRegistrySyncable* registry) {
++  // browser_engine: inside the app, files go to Downloads without asking, as
++  // in Chrome and Safari (ungoogled-chromium asks by default). The setting
++  // stays.
+   registry->RegisterBooleanPref(
+       prefs::kPromptForDownload,
+-      true,
++      !browser_engine::IsEmbedded(),
+       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+   registry->RegisterStringPref(prefs::kDownloadExtensionsToOpen, std::string());
+   registry->RegisterListPref(prefs::kDownloadExtensionsToOpenByPolicy, {});

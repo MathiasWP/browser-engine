@@ -19,6 +19,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_engine/be_browser_window.h"
+#include "browser_engine/be_downloads.h"
 #import "browser_engine/be_preferences.h"
 #include "browser_engine/browser_engine_hooks.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -103,6 +104,9 @@ class EngineHooks : public Hooks {
 
   void BrowserWindowInitialized(BrowserWindowInterface* browser) override {
     if (BEBrowserWindow* window = BEBrowserWindow::FromBrowser(browser)) {
+      // Downloads of every profile our windows show, from its first window
+      // on: the everyday profile, and a private window's own.
+      downloads_.ObserveProfile(browser->GetProfile());
       window->OnBrowserInitialized();
     }
   }
@@ -164,6 +168,7 @@ class EngineHooks : public Hooks {
 
   std::unique_ptr<ScopedKeepAlive> keep_alive_;
   id __strong will_terminate_observer_ = nil;
+  BEDownloads downloads_;
 };
 
 EngineHooks& GetEngineHooks() {
