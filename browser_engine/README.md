@@ -123,6 +123,7 @@ patches), and checked with `git apply --check` the way the build applies them.
 | 17 | `chrome/browser/renderer_context_menu/render_view_context_menu.cc` | Right-click items for what our windows don't have yet: "Open in Reading Mode" (Chrome's side panel; nothing happened) and "Open link in split view" (a split the app never showed) |
 | 18 | `components/password_manager/core/browser/password_manager.cc` | Inside the app, Chrome offers to save passwords, as Chrome and Safari do: ungoogled-chromium's inox defaults turn `credentials_enable_service` off. The setting stays |
 | 19 | `chrome/browser/ui/views/session_crashed_bubble_view.cc` | After a crash Chrome waits for its "Restore pages?" bubble to be answered, keeping the old session and saving no new one. The bubble needs a BrowserView, so for our window `ShowBubble()` hands the offer to the window (`Hooks::ShowSessionCrashedBubble`), which offers it to the app (`BEWindow.offersRestoreAfterCrash`) |
+| 20 | `chrome/browser/preloading/preloading_prefs.cc` | Inside the app, Chrome's standard preloading is the default, as in Chrome: likely next pages are resolved, connected to and prerendered, and the loading predictor connects early to the hosts a site loads from. ungoogled-chromium's inox defaults turn it off, which made repeat visits to sites like Reddit start slower. The setting stays |
 
 **Webium's other `BrowserWindowFeatures` arms, and why there's no patch for them:**
 - `BrowserElementsWebUiBrowser`: with Webium off, features make `BrowserElementsViewsImpl`;
@@ -159,6 +160,14 @@ flavor **dev**), on `macos-26-intel`:
    `upload_engine/` = `Chromium.app.zip` (`ditto -c -k --keepParent`), `BEEngine.h`,
    `engine.json` (`chromium_version`, `ungoogled_revision`, `git_sha`, `api_version`,
    `arch`, `base_run_id`, `run_id`) → artifact `engine_x86_64`.
+
+**The engine for daily use**: `build.yml` with flavor **engine** is the release build
+(official, ThinLTO, PGO) with the layer copied in and the touch points applied in
+`github_before_build.sh`, as step 2 does on a dev base. After the last build job,
+`github_prepare_artifacts.sh` runs `github_iterate.sh package` too, and the job uploads
+`engine_x86_64` like an iterate run. It takes the full build's day or two. On the dev Mac, a
+release build (ungoogled 155) painted Google, YouTube and Reddit 10–35% sooner than the dev
+base (156).
 
 Each run recompiles the 7 patched Chromium files (the patches are re-applied to a fresh
 base), our 10 sources, and relinks the framework. To save those recompiles, a later dev base

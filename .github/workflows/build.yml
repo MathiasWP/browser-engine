@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
     inputs:
       flavor:
-        description: "release: optimised (ThinLTO, PGO) for daily use. dev: quick to rebuild, the base for developing the embedding layer."
+        description: "release: optimised (ThinLTO, PGO) for daily use. dev: quick to rebuild, the base for developing the embedding layer. engine: release with the embedding layer, published as engine_x86_64 for the app."
         type: choice
-        options: [release, dev]
+        options: [release, dev, engine]
         default: release
   push:
     tags:

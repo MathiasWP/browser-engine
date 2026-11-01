@@ -59,6 +59,12 @@ if [[ -f "$_root_dir/build_finished_$_target_cpu.log" ]] ; then
 
   ls -kahl release_asset/
   du -hs release_asset/
+
+  # The engine flavor: also the app's engine (Chromium.app, BEEngine.h, engine.json), as iterate
+  # publishes it, for scripts/fetch-engine.sh.
+  if [[ "$_flavor" == "engine" ]]; then
+    "$_root_dir/github_iterate.sh" package "$_target_cpu"
+  fi
 fi
 
 gsync --file-system "$_src_dir"

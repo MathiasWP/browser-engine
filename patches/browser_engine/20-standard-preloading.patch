@@ -1,0 +1,32 @@
+# browser_engine touch point: inside the app, Chrome's standard preloading is on
+# by default, as in Chrome: likely next pages are resolved, connected to and
+# prerendered (the address bar's top suggestion while typing), so navigations
+# start sooner. ungoogled-chromium's inox defaults turn it off; the setting stays.
+
+diff --git a/chrome/browser/preloading/preloading_prefs.cc b/chrome/browser/preloading/preloading_prefs.cc
+--- a/chrome/browser/preloading/preloading_prefs.cc
++++ b/chrome/browser/preloading/preloading_prefs.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "chrome/browser/preloading/preloading_prefs.h"
+ 
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "chrome/browser/battery/battery_saver.h"
+ #include "chrome/browser/data_saver/data_saver.h"
+ #include "chrome/browser/prefetch/pref_names.h"
+@@ -14,9 +15,14 @@
+ namespace prefetch {
+ void RegisterPredictionOptionsProfilePrefs(
+     user_prefs::PrefRegistrySyncable* registry) {
++  // browser_engine: inside the app, Chrome's standard preloading (resolving,
++  // connecting to and prerendering likely next pages) is on, as in Chrome.
++  // ungoogled-chromium turns it off by default; the setting stays.
+   registry->RegisterIntegerPref(
+       prefs::kNetworkPredictionOptions,
+-      static_cast<int>(NetworkPredictionOptions::kDefault),
++      static_cast<int>(browser_engine::IsEmbedded()
++                           ? NetworkPredictionOptions::kStandard
++                           : NetworkPredictionOptions::kDefault),
+       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+ }
+ 

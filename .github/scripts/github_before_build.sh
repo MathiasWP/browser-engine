@@ -4,6 +4,7 @@
 
 _target_cpu="$1"
 # release: optimised for daily use. dev: quick to rebuild, the base for developing the embedding layer.
+# engine: release with the embedding layer, packaged for the app.
 _flavor="${2:-release}"
 
 # Some path variables
@@ -25,6 +26,16 @@ cat "$_root_dir/flags.macos.gn" >> "$_src_dir/out/Default/args.gn"
 # Later assignments win, so the dev flags override the release ones above.
 if [[ $_flavor == "dev" ]]; then
   cat "$_root_dir/flags.macos.dev.gn" >> "$_src_dir/out/Default/args.gn"
+  echo "chrome" > "$_src_dir/out/Default/build_targets.txt"
+elif [[ $_flavor == "engine" ]]; then
+  # The release build with the embedding layer and its touch points, as github_iterate.sh puts
+  # them on a dev base: the app's engine for daily use.
+  mkdir -p "$_src_dir/browser_engine"
+  rsync -r -c "$_root_dir/browser_engine/" "$_src_dir/browser_engine/"
+  # build/src sits inside our checkout: stop git apply from finding it (it would skip the files).
+  for _patch in "$_root_dir"/patches/browser_engine/*.patch; do
+    (cd "$_src_dir" && GIT_CEILING_DIRECTORIES="$_root_dir/build" git apply "$_patch")
+  done
   echo "chrome" > "$_src_dir/out/Default/build_targets.txt"
 else
   echo "chrome chromedriver" > "$_src_dir/out/Default/build_targets.txt"
