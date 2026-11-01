@@ -1,0 +1,29 @@
+# browser_engine touch point: inside the app, "Continue where you left off" is
+# the startup default (session.restore_on_startup 1, not the New Tab page's 5),
+# as Mac apps bring their windows back; it was the app's own default before.
+# GetDefaultStartupType() is what the pref is registered with, and where Chrome's
+# own continue-session experiment changes it. The setting stays.
+
+diff --git a/chrome/browser/prefs/session_startup_pref.cc b/chrome/browser/prefs/session_startup_pref.cc
+--- a/chrome/browser/prefs/session_startup_pref.cc
++++ b/chrome/browser/prefs/session_startup_pref.cc
+@@ -10,6 +10,7 @@
+
+ #include "base/feature_list.h"
+ #include "base/values.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "build/build_config.h"
+ #include "chrome/browser/profiles/profile.h"
+ #include "chrome/browser/ui/ui_features.h"
+@@ -67,6 +68,11 @@ SessionStartupPref::Type SessionStartupPref::GetDefaultStartupType() {
+   return SessionStartupPref::LAST;
+ #else
+ #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)
++  // browser_engine: inside the app, continue where you left off, as Mac apps
++  // bring their windows back. The setting stays.
++  if (browser_engine::IsEmbedded()) {
++    return SessionStartupPref::LAST;
++  }
+   if (features::kSetDefaultToContinueSession.Get()) {
+     return SessionStartupPref::LAST;
+   }

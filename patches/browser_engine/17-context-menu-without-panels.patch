@@ -1,0 +1,37 @@
+# browser_engine touch point: no right-click items for what the app's windows
+# don't have yet. "Open in Reading Mode" opens Chrome's side panel (nothing
+# happens), and "Open link in split view" makes a split the app never shows.
+
+diff --git a/chrome/browser/renderer_context_menu/render_view_context_menu.cc b/chrome/browser/renderer_context_menu/render_view_context_menu.cc
+--- a/chrome/browser/renderer_context_menu/render_view_context_menu.cc
++++ b/chrome/browser/renderer_context_menu/render_view_context_menu.cc
+@@ -35,6 +35,7 @@
+ #include "base/strings/string_util.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/system/sys_info.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "build/branding_buildflags.h"
+ #include "build/build_config.h"
+ #include "chrome/app/chrome_command_ids.h"
+@@ -2008,7 +2009,8 @@ void RenderViewContextMenu::AppendLinkItems() {
+       // Opening a link in split view should also go through the same
+       // constraints as opening a link in a new tab since a split view tab is a
+       // new tab that is then joined with the current active tab.
+-      if (IsNormalBrowser()) {
++      // browser_engine: the app doesn't show split views yet.
++      if (IsNormalBrowser() && !browser_engine::IsEmbedded()) {
+         tabs::TabInterface* tab =
+             tabs::TabInterface::MaybeGetFromContents(GetWebContents());
+         auto [string_id, icon] =
+@@ -2850,6 +2852,11 @@ void RenderViewContextMenu::AppendMediaRouterItem() {
+ }
+ 
+ void RenderViewContextMenu::AppendReadAnythingItem() {
++  // browser_engine: Reading Mode opens in Chrome's side panel, which the app's
++  // windows don't have.
++  if (browser_engine::IsEmbedded()) {
++    return;
++  }
+   const bool is_menu_simplification_enabled =
+       features::IsMenuSimplificationEnabled();
+   if (is_menu_simplification_enabled && params_.is_editable) {

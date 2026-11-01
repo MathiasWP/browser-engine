@@ -1,0 +1,37 @@
+# browser_engine touch point: inside the app, the default search engine is
+# DuckDuckGo. ungoogled-chromium's replace-google-search-engine-with-nosearch.patch
+# turns the "google" entry (Chrome's fallback default) into "No Search", so words
+# typed in the address bar search nothing. The fallback is what
+# DefaultSearchManager uses until the user (or a policy or extension) picks an
+# engine; the JSON and the choice are unchanged.
+
+diff --git a/components/search_engines/template_url_prepopulate_data.cc b/components/search_engines/template_url_prepopulate_data.cc
+--- a/components/search_engines/template_url_prepopulate_data.cc
++++ b/components/search_engines/template_url_prepopulate_data.cc
+@@ -18,6 +18,7 @@
+ #include "base/metrics/histogram_functions.h"
+ #include "base/not_fatal_until.h"
+ #include "base/rand_util.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "build/build_config.h"
+ #include "components/country_codes/country_codes.h"
+ #include "components/pref_registry/pref_registry_syncable.h"
+@@ -317,6 +318,18 @@ std::unique_ptr<TemplateURLData> GetPrepopulatedFallbackSearch(
+     PrefService& prefs,
+     const std::vector<raw_ptr<const PrepopulatedEngine>>&
+         regional_prepopulated_engines) {
++  // browser_engine: inside the app the default is DuckDuckGo, not the
++  // "No Search" engine ungoogled-chromium puts in Google's place. The
++  // country's own entry if its list has one, else the built-in one.
++  if (browser_engine::IsEmbedded()) {
++    if (std::unique_ptr<TemplateURLData> engine =
++            FindPrepopulatedEngineInternal(prefs, regional_prepopulated_engines,
++                                           duckduckgo.id,
++                                           /*use_first_as_fallback=*/false)) {
++      return engine;
++    }
++    return PrepopulatedEngineToTemplateURLData(&duckduckgo);
++  }
+   return FindPrepopulatedEngineInternal(prefs, regional_prepopulated_engines,
+                                         google.id,
+                                         /*use_first_as_fallback=*/true);

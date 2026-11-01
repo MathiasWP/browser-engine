@@ -15,13 +15,14 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 3
+#define BE_API_VERSION 4
 
 @protocol BEWindow;
 @protocol BETab;
 @protocol BEPreferences;
 @protocol BESuggestion;
 @protocol BEDownload;
+@protocol BEPasswordOffer;
 
 /// Browser commands, run the way Chrome runs them (so ⌘-click and keyboard modifiers, tab
 /// restore and extensions all see them). The engine maps them to Chrome's command ids.
@@ -195,6 +196,25 @@ NS_SWIFT_UI_ACTOR
 - (void)cancel;
 @end
 
+// MARK: Passwords
+
+/// Chrome offers to save a password the page just signed in with, or to update a saved one.
+/// (Chrome: `ManagePasswordsUIController`, its save and update bubbles)
+NS_SWIFT_UI_ACTOR
+@protocol BEPasswordOffer <NSObject>
+/// Updating a saved password rather than saving a new one.
+@property (nonatomic, readonly) BOOL isUpdate;
+/// The site, as Chrome shows it ("example.com").
+@property (nonatomic, readonly, copy) NSString *site;
+/// Empty when the form had none.
+@property (nonatomic, readonly, copy) NSString *username;
+- (void)save;
+/// Never offers again for this site. (Not offered for updates.)
+- (void)neverForThisSite;
+/// Not now.
+- (void)dismiss;
+@end
+
 // MARK: Windows
 
 /// What a window tells the app. Indexes are positions in the window's tab strip.
@@ -283,11 +303,17 @@ NS_SWIFT_UI_ACTOR
 /// Where the page goes when docked DevTools fills `bounds`, in the same coordinates.
 /// (Chrome: `ApplyDevToolsContentsResizingStrategy`)
 - (NSRect)pageFrameWithDevToolsInBounds:(NSRect)bounds;
+/// Chrome's offer to save or update the password just used here, while it stands; nil otherwise.
+/// `tabDidUpdate:` says when it comes and goes. (Version 4.)
+@property (nonatomic, readonly, nullable) id<BEPasswordOffer> passwordOffer;
 
 /// What the user typed or picked in the address field.
 - (void)loadURL:(NSURL *)url;
 /// Gives the page keyboard focus.
 - (void)focusPage;
+/// Shows Chrome's details for the page's site (connection, certificate, permissions, cookies),
+/// as clicking the lock does. (Chrome: Page Info. Version 4.)
+- (void)showSiteInfo;
 @end
 
 /// The framework's one exported function. Returns nil if it was built for another API version.

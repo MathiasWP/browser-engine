@@ -6,16 +6,20 @@
 
 #include "base/check.h"
 #include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
+#import "browser_engine/be_passwords.h"
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/ssl/chrome_security_state_util.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+#include "chrome/browser/ui/bubble_anchor_util.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
+#include "chrome/browser/ui/page_info/page_info_dialog.h"
 #include "chrome/browser/ui/tab_ui_helper.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "components/favicon/core/favicon_driver.h"
@@ -159,6 +163,7 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
 @implementation BEChromiumTab {
   tabs::TabHandle _handle;
   std::unique_ptr<browser_engine::TabObserver> _observer;
+  std::unique_ptr<browser_engine::TabPasswordOffer> _passwordOffer;
 }
 
 @synthesize delegate = _delegate;
@@ -186,6 +191,8 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
     _handle = tab->GetHandle();
     _observer = std::make_unique<browser_engine::TabObserver>(self);
     _observer->StartObserving(tab->GetContents());
+    _passwordOffer =
+        std::make_unique<browser_engine::TabPasswordOffer>(tab, self);
   }
   return self;
 }
@@ -210,6 +217,9 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
 }
 
 - (void)sendUpdate {
+  // Chrome's password state can change with nothing the tab watches (a page
+  // that signs in without navigating); look again before every update.
+  _passwordOffer->Update();
   [_delegate tabDidUpdate:self];
 }
 
@@ -341,6 +351,10 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
                     page_bounds.height());
 }
 
+- (id<BEPasswordOffer>)passwordOffer {
+  return _passwordOffer->offer();
+}
+
 - (void)loadURL:(NSURL*)url {
   tabs::TabInterface* tab = [self tab];
   const GURL gurl = net::GURLWithNSURL(url);
@@ -367,6 +381,13 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   if (content::WebContents* contents = [self contents]) {
     contents->Focus();
   }
+}
+
+- (void)showSiteInfo {
+  // As the lock in Chrome's omnibox does. Anchored to the location bar, which
+  // floats it over our window (BELocationBar::GetChipAnchor()).
+  ShowPageInfoDialog([self contents], base::DoNothing(),
+                     bubble_anchor_util::Anchor::kLocationBar);
 }
 
 @end

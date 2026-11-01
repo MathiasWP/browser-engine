@@ -8,7 +8,7 @@ in its place is `BEBrowserWindow`, Chrome's third production `BrowserWindow` aft
 `BrowserView` and Webium's `WebUIBrowserWindow`, whose shape it follows at M156.
 
 The app and the engine meet only in `public/BEEngine.h` (a verbatim copy of the app's
-`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 3). The framework exports
+`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 4). The framework exports
 one function, `BEEngineCreate`.
 
 First draft, 30 Oct 2026, against Chromium 156.0.8078.47. Nothing here has been compiled
@@ -83,6 +83,7 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 | `be_engine.{h,mm}` | `BEEngineCreate`, `BEChromiumEngine` (`BEEngine`), the hooks implementation, NSApp stand-ins, and BrowserCrApplication's accessibility activation (`BEAppAccessibility`) |
 | `be_preferences.{h,mm}` | `BEChromiumPreferences` (`BEPreferences`): the last used profile's `PrefService`, then Local State |
 | `be_downloads.{h,mm}` | `BEDownloads`: the downloads of every profile with one of our windows (`AllDownloadItemNotifier`), as `BEDownload` objects; keep and discard as Chrome's download bubble does |
+| `be_passwords.{h,mm}` | `TabPasswordOffer`: Chrome's offer to save or update a password, read from the tab's password page action (the bubble itself needs Chrome's toolbar), as `BEPasswordOffer`; its answers replay the bubble's (`SaveUpdateBubbleController`) |
 | `be_autocomplete.{h,mm}` | `BEAutocomplete`: a window's address-bar suggestions, Chrome's `AutocompleteController` with the omnibox's local providers, and opening a suggestion as the omnibox does |
 | `be_browser_window.{h,mm}` | `BEBrowserWindow : BrowserWindow`, its widget delegate and `BENativeWidgetMac` |
 | `be_browser_window_parts.{h,mm}` | Never-null parts Chrome asks for: `BELocationBar`, `BEExclusiveAccessContext`, `BEModalDialogHost`, `BEFindBarOwner` (Webium's, re-pointed) |
@@ -117,6 +118,10 @@ patches), and checked with `git apply --check` the way the build applies them.
 | 12 | `chrome/browser/devtools/devtools_window_views.cc` | Docked DevTools: `UpdateBrowserWindow()` only tells a BrowserView about resizing, dock side and undocking. For our window it calls `UpdateToolbar(inspected)`, which updates that tab, so the app lays out again |
 | 13 | `chrome/browser/ui/autofill/address_bubbles_controller.cc` | Saving an address dereferenced the BrowserView `FindBrowserWindowWithWebContents()` finds (none for us). When embedded, the offer is declined as when a bubble can't show |
 | 14 | `chrome/browser/download/download_prefs.cc` | Inside the app, files go to Downloads without asking, as in Chrome and Safari: ungoogled-chromium's iridium patch asks by default. The setting stays |
+| 15 | `components/search_engines/template_url_prepopulate_data.cc` | The default search engine: ungoogled-chromium's "No Search" replaced Google, so typed words searched nothing. Inside the app the fallback default is DuckDuckGo (`GetPrepopulatedFallbackSearch()`) |
+| 16 | `chrome/browser/prefs/session_startup_pref.cc` | Inside the app, "Continue where you left off" is the startup default (`GetDefaultStartupType()`), as Mac apps restore their windows |
+| 17 | `chrome/browser/renderer_context_menu/render_view_context_menu.cc` | Right-click items for what our windows don't have yet: "Open in Reading Mode" (Chrome's side panel; nothing happened) and "Open link in split view" (a split the app never showed) |
+| 18 | `components/password_manager/core/browser/password_manager.cc` | Inside the app, Chrome offers to save passwords, as Chrome and Safari do: ungoogled-chromium's inox defaults turn `credentials_enable_service` off. The setting stays |
 
 **Webium's other `BrowserWindowFeatures` arms, and why there's no patch for them:**
 - `BrowserElementsWebUiBrowser`: with Webium off, features make `BrowserElementsViewsImpl`;
@@ -155,7 +160,7 @@ flavor **dev**), on `macos-26-intel`:
    `arch`, `base_run_id`, `run_id`) → artifact `engine_x86_64`.
 
 Each run recompiles the 7 patched Chromium files (the patches are re-applied to a fresh
-base), our 9 sources, and relinks the framework. To save those recompiles, a later dev base
+base), our 10 sources, and relinks the framework. To save those recompiles, a later dev base
 can carry the touch points: add them to `patches/series` and copy `browser_engine/` into the
 tree in `github_fetch_resources.sh`; the iterate script already skips applied patches.
 
@@ -210,6 +215,9 @@ tree in `github_fetch_resources.sh`; the iterate script already skips applied pa
 
 | Switch | Evidence (156.0.8078.47) |
 |---|---|
+| `--disable-features=LensOverlay` | Lens items appear when the search engine is Google; opening the overlay `CHECK`s for a contents web view our window doesn't have (`overlay_base_controller.cc:662-666`). |
+| `--disable-features=MediaRouter` | Cast shows an unattached bubble (no BrowserView to anchor to), and ungoogled-chromium builds without mDNS, so it finds almost nothing. |
+| `--enable-features=DisableQRGenerator` | ungoogled's switch; "Create QR code" dereferences Chrome's toolbar (`qrcode_window_controller.cc:45-46`). |
 | `--disable-features=Glic` | `chrome/browser/glic/widget/browser_conditions.cc:191`: `BrowserAttachObservation::OnBrowserCreated()` does `CHECK_DEREF(BrowserView::GetBrowserViewForBrowser(browser))` for every TYPE_NORMAL browser of a Glic-enabled profile. `kGlic` is enabled by default on Mac (`chrome/common/chrome_features.cc:530`); ungoogled's `disable-ai.patch` removes much of Glic, but not provably this path. |
 
 Found while reading, not switchable (guard patches when they bite):
@@ -240,7 +248,8 @@ Found while reading, not switchable (guard patches when they bite):
 - Autofill and payments bubbles: `BEAutofillBubbleHandler` answers every `Show*` with a bubble
   that does nothing, since callers `CHECK` what they get. So no autofill, card or Autofill AI
   bubble shows yet. Addresses are declined (patch 13). Password bubbles return early without
-  Chrome's toolbar (`password_bubble_view_base.cc:64-68`), so passwords aren't offered either.
+  Chrome's toolbar (`password_bubble_view_base.cc:64-68`); the app shows Chrome's offer itself
+  (`be_passwords.mm`, `BETab.passwordOffer`).
 - "Create QR code" (`qrcode_window_controller.cc:45-46`) dereferences Chrome's toolbar. The app
   launches with ungoogled's `--enable-features=DisableQRGenerator`, which hides it.
 - "Send to your devices" (`send_tab_to_self_bubble_controller.cc:107-108`) does the same, but
