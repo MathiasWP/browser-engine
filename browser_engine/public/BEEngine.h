@@ -15,7 +15,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 8
+#define BE_API_VERSION 9
 
 @protocol BEWindow;
 @protocol BETab;
@@ -25,6 +25,7 @@ NS_ASSUME_NONNULL_BEGIN
 @protocol BEPasswordOffer;
 @protocol BEExtensionAction;
 @protocol BEClosedItem;
+@protocol BESiteSetting;
 
 /// Browser commands, run the way Chrome runs them (so ⌘-click and keyboard modifiers, tab
 /// restore and extensions all see them). The engine maps them to Chrome's command ids.
@@ -254,6 +255,24 @@ NS_SWIFT_UI_ACTOR
 @property (nonatomic, readonly, nullable) NSImage *favicon;
 @end
 
+// MARK: Site settings
+
+/// Something the page was allowed, or kept from doing, as an icon in Chrome's address bar shows
+/// it: pop-ups blocked, the camera or microphone in use, location used or blocked, and so on.
+/// (Chrome: `ContentSettingImageModel`. Version 9.)
+NS_SWIFT_UI_ACTOR
+@protocol BESiteSetting <NSObject>
+/// Which kind, stable: "popups", "redirects", "camera", "microphone", "camera-microphone",
+/// "location", "downloads", "cookies", "javascript", "images", "sound", "clipboard", "sensors",
+/// "midi", "protocol-handlers", "storage-access", "ads", "mixed-content", "notifications", or
+/// another of Chrome's, named the same way.
+@property (nonatomic, readonly, copy) NSString *identifier;
+/// What Chrome says on hover ("Pop-ups blocked").
+@property (nonatomic, readonly, copy) NSString *title;
+/// Blocked (Chrome strikes its icon through), rather than allowed or in use.
+@property (nonatomic, readonly) BOOL isBlocked;
+@end
+
 // MARK: Windows
 
 /// What a window tells the app. Indexes are positions in the window's tab strip.
@@ -396,6 +415,13 @@ NS_SWIFT_UI_ACTOR
 /// The page's zoom in percent, as Chrome's zoom bubble shows it; 100 at the default zoom, where
 /// Chrome shows no zoom icon. `tabDidUpdate:` says when it changes. (Version 8.)
 @property (nonatomic, readonly) NSInteger zoomPercent;
+/// The page's site-setting icons, in Chrome's order; `tabDidUpdate:` says when they change.
+/// (Version 9.)
+@property (nonatomic, readonly, copy) NSArray<id<BESiteSetting>> *siteSettings;
+/// Opens Chrome's bubble for one of them (allow this site's pop-ups, stop using the camera…),
+/// anchored below `rect` (in the window's coordinates, from its bottom left), as a click on
+/// Chrome's icon does. Does nothing for one the page doesn't show.
+- (void)showSiteSetting:(NSString *)identifier fromRect:(NSRect)rect;
 /// The page is playing sound, or did a moment ago, as Chrome's tab strip shows it; `tabDidUpdate:`
 /// says when that changes. (Chrome: `RecentlyAudibleHelper`. Version 8.)
 @property (nonatomic, readonly) BOOL isAudible;

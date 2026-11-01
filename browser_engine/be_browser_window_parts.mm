@@ -76,7 +76,13 @@ void BELocationBar::FocusSearch() {
 
 void BELocationBar::UpdateFocusBehavior(bool toolbar_visible) {}  // No toolbar.
 
-void BELocationBar::UpdateContentSettingsIcons() {}  // Milestone 2.
+void BELocationBar::UpdateContentSettingsIcons() {
+  // What Chrome calls when the active page's site-setting icons may have
+  // changed: a pop-up or download blocked, the camera in use
+  // (content_settings::UpdateLocationBarUiForWebContents()). The app reads
+  // BETab.siteSettings again.
+  window_->OnSiteSettingsChanged();
+}
 
 void BELocationBar::SaveStateToContents(content::WebContents* contents) {
 }  // The app keeps per-tab edit state.

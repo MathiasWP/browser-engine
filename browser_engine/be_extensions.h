@@ -19,6 +19,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/time/time.h"
+#import "browser_engine/be_bubble_anchor.h"
 #import "browser_engine/public/BEEngine.h"
 #include "chrome/browser/ui/extensions/extensions_container.h"
 #include "chrome/browser/ui/extensions/extensions_toolbar_view_model.h"
@@ -39,7 +40,6 @@ class WebContents;
 
 namespace views {
 class FocusManager;
-class View;
 class Widget;
 }  // namespace views
 
@@ -144,10 +144,9 @@ class BEExtensions : public ExtensionsToolbarViewModel::Delegate,
   const raw_ptr<BEBrowserWindow> window_;
   __weak BEChromiumWindow* objc_window_;
 
-  // What popups anchor to, as to a toolbar button: an empty view in the
-  // widget's root view (which owns it), out of layout, events and
-  // accessibility, moved over the action's rect before each popup.
-  raw_ptr<views::View> anchor_view_ = nullptr;
+  // What popups anchor to, as to a toolbar button, moved over the action's
+  // rect before each popup.
+  BEBubbleAnchor anchor_;
   // Where the app last ran each action from, in the root view's coordinates.
   std::map<extensions::ExtensionId, gfx::Rect> anchor_rects_;
 

@@ -43,6 +43,7 @@ class BEExtensions;
 class BEFindBarOwner;
 class BELocationBar;
 class BEModalDialogHost;
+class BESiteSettings;
 class BEStatusBubble;
 
 class BEBrowserWindow : public BrowserWindow,
@@ -97,6 +98,15 @@ class BEBrowserWindow : public BrowserWindow,
   // profiles (as Chrome's toolbar has none), before OnBrowserInitialized()
   // and once the window is closing.
   BEExtensions* extensions() const { return extensions_.get(); }
+
+  // The bubbles of the site-setting icons the app shows (pop-ups blocked,
+  // camera in use...). Null before OnBrowserInitialized() and once the window
+  // is closing.
+  BESiteSettings* site_settings() const { return site_settings_.get(); }
+  // Chrome refreshed the active page's site-setting icons
+  // (LocationBar::UpdateContentSettingsIcons()), or something they show
+  // changed: the app hears tabDidUpdate: for the active tab.
+  void OnSiteSettingsChanged();
 
   // What Chrome's status bubble shows (be_browser_window_parts.h); empty for
   // nothing.
@@ -310,6 +320,8 @@ class BEBrowserWindow : public BrowserWindow,
   // Made in OnBrowserInitialized(), destroyed first thing as the window goes,
   // before the widget and its FocusManager (see be_extensions.h).
   std::unique_ptr<BEExtensions> extensions_;
+  // Made in OnBrowserInitialized(), destroyed right after `extensions_`.
+  std::unique_ptr<BESiteSettings> site_settings_;
 
   // Lets DevTools dock in our window (DevToolsWindow::Create() asks for it).
   // It has none of BrowserView's views to lay out: BETab hands docked DevTools

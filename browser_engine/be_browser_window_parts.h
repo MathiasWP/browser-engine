@@ -35,11 +35,12 @@ namespace browser_engine {
 class BEBrowserWindow;
 
 // The app draws the address field; this tells it when Chrome wants focus
-// there and answers Chrome's questions with "no omnibox here". Unlike
-// Webium's stub it has no permission chip: IsDrawn() is false, so permission
-// requests take the bubble path (chrome/browser/ui/views/permissions/
-// permission_prompt_factory.cc), which null-checks GetChipController() and
-// anchors to GetChipAnchor() (see there).
+// there and when the active page's site-setting icons change, and answers
+// Chrome's questions with "no omnibox here". Unlike Webium's stub it has no
+// permission chip: IsDrawn() is false, so permission requests take the bubble
+// path (chrome/browser/ui/views/permissions/permission_prompt_factory.cc),
+// which null-checks GetChipController() and anchors to GetChipAnchor() (see
+// there).
 class BELocationBar : public LocationBar {
  public:
   explicit BELocationBar(BEBrowserWindow* window);

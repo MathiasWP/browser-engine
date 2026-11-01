@@ -14,6 +14,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #import "browser_engine/be_passwords.h"
+#import "browser_engine/be_site_settings.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
 #include "chrome/browser/devtools/devtools_window.h"
@@ -455,6 +456,13 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   return zoom_controller->GetZoomPercent();
 }
 
+- (NSArray<id<BESiteSetting>>*)siteSettings {
+  // Looked at each time, as Chrome's location bar refreshes its icons from
+  // the page. Chrome says when they change through the window's location bar
+  // (BELocationBar::UpdateContentSettingsIcons()), for the active tab.
+  return browser_engine::GetSiteSettings([self contents]);
+}
+
 - (BOOL)isAudible {
   content::WebContents* contents = [self contents];
   RecentlyAudibleHelper* helper =
@@ -502,6 +510,13 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   // floats it over our window (BELocationBar::GetChipAnchor()).
   ShowPageInfoDialog([self contents], base::DoNothing(),
                      bubble_anchor_util::Anchor::kLocationBar);
+}
+
+- (void)showSiteSetting:(NSString*)identifier fromRect:(NSRect)rect {
+  if (tabs::TabInterface* tab = [self tab]) {
+    browser_engine::ShowSiteSetting(tab, base::SysNSStringToUTF8(identifier),
+                                    rect);
+  }
 }
 
 - (void)setBookmarked:(BOOL)bookmarked {

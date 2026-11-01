@@ -11,6 +11,7 @@
 #include "base/notimplemented.h"
 #include "browser_engine/be_browser_window_parts.h"
 #import "browser_engine/be_extensions.h"
+#import "browser_engine/be_site_settings.h"
 #import "browser_engine/be_tab.h"
 #import "browser_engine/be_window.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -301,6 +302,9 @@ BEBrowserWindow::~BEBrowserWindow() {
   // there: an open extension popup closes, the extensions' shortcuts go, and
   // the window stops being an ExtensionsContainer.
   extensions_.reset();
+  // An open site-setting bubble closes, while the browser's
+  // ContentSettingBubbleModelDelegate it uses is there.
+  site_settings_.reset();
 
   // Before the FullscreenController goes with the features below.
   fullscreen_subscription_ = {};
@@ -357,6 +361,9 @@ void BEBrowserWindow::OnBrowserInitialized() {
   if (!browser_->GetProfile()->IsGuestSession()) {
     extensions_ = std::make_unique<BEExtensions>(this, objc_window_);
   }
+  // The site-setting icons' bubbles, as BrowserView's location bar shows
+  // them.
+  site_settings_ = std::make_unique<BESiteSettings>(this);
   // InitPostWindowConstruction made the ExclusiveAccessManager after us and
   // before this hook. Its FullscreenController tells its subscribers about
   // every change, from a posted task: a page entering or leaving fullscreen
@@ -433,6 +440,10 @@ const std::u16string& BEBrowserWindow::GetStatusText() const {
 
 void BEBrowserWindow::OnStatusTextChanged() {
   [objc_window_ statusTextDidChange];
+}
+
+void BEBrowserWindow::OnSiteSettingsChanged() {
+  [objc_window_ activeTabDidChange];
 }
 
 void BEBrowserWindow::DeleteBrowserWindow() {
@@ -948,6 +959,12 @@ void BEBrowserWindow::OnTabStripModelChanged(
     TabStripModel* tab_strip_model,
     const TabStripModelChange& change,
     const TabStripSelectionChange& selection) {
+  // A site setting's bubble is about the page it was opened for, and closes
+  // when another tab is active, as Chrome's closes when its page is hidden
+  // (ContentSettingBubbleContents::OnVisibilityChanged()).
+  if (selection.active_tab_changed() && site_settings_) {
+    site_settings_->CloseBubble();
+  }
   [objc_window_ tabStripModelChanged:change selection:selection];
 }
 

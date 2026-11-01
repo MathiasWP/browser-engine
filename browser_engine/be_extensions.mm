@@ -29,13 +29,9 @@
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_util_mac.h"
-#include "ui/gfx/mac/coordinate_conversion.h"
-#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/bubble/bubble_anchor.h"
 #include "ui/views/bubble/bubble_border.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
-#include "ui/views/view.h"
-#include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 
@@ -175,23 +171,13 @@ BEExtensions::BEExtensions(BEBrowserWindow* window,
                            BEChromiumWindow* objc_window)
     : window_(window),
       objc_window_(objc_window),
+      anchor_(window->widget()),
       toolbar_view_model_(std::make_unique<ExtensionsToolbarViewModel>(
           this,
           window->browser(),
           ToolbarActionsModel::Get(window->browser()->GetProfile()))),
       scoped_container_(window->browser()->GetUnownedUserDataHost(),
                         *toolbar_view_model_) {
-  // The anchor goes into the root view, next to the NonClientView, rather
-  // than into the NativeViewHost with the app's view: a NativeViewHost takes
-  // any child added to or removed from it for its own (re)attachment
-  // (NativeViewHost::ViewHierarchyChanged()).
-  auto anchor_view = std::make_unique<views::View>();
-  anchor_view->SetProperty(views::kViewIgnoredByLayoutKey, true);
-  anchor_view->SetCanProcessEventsWithinSubtree(false);
-  anchor_view->GetViewAccessibility().SetIsIgnored(true);
-  anchor_view_ =
-      window_->widget()->GetRootView()->AddChildView(std::move(anchor_view));
-
   toolbar_view_model_observation_.Observe(toolbar_view_model_.get());
 }
 
@@ -280,13 +266,8 @@ void BEExtensions::Run(const std::string& action_id, NSRect rect) {
     return;
   }
 
-  // Popups anchor below the rect (GetReferenceButtonForPopup()). Views wants
-  // it in the root view's coordinates, from the top left; through the screen,
-  // so Views' own conversion places it.
-  const gfx::Rect bounds_in_screen = gfx::ScreenRectFromNSRect(screen_rect);
-  gfx::Point origin = bounds_in_screen.origin();
-  views::View::ConvertPointFromScreen(anchor_view_->parent(), &origin);
-  anchor_rects_[action_id] = gfx::Rect(origin, bounds_in_screen.size());
+  // Popups anchor below the rect (GetReferenceButtonForPopup()).
+  anchor_rects_[action_id] = anchor_.ConvertFromScreen(screen_rect);
 
   // Chrome's toolbar button (ToolbarActionView::ButtonPressed()): the popup,
   // or the click event to the extension, granting it the tab (activeTab and
@@ -308,8 +289,8 @@ gfx::Rect BEExtensions::GetAnchorRect(
   if (it != anchor_rects_.end()) {
     return it->second;
   }
-  return gfx::Rect(anchor_view_->parent()->width() - kFallbackAnchorInset, 0,
-                   0, kFallbackAnchorHeight);
+  return gfx::Rect(anchor_.GetRootWidth() - kFallbackAnchorInset, 0, 0,
+                   kFallbackAnchorHeight);
 }
 
 // ExtensionsToolbarViewModel::Delegate ----------------------------------------
@@ -501,14 +482,12 @@ views::BubbleAnchor BEExtensions::GetReferenceButtonForPopup(
     const extensions::ExtensionId& action_id) {
   // One popup at a time (ExtensionActionDelegateDesktop closes the open one
   // first), so one anchor will do.
-  anchor_view_->SetBoundsRect(GetAnchorRect(action_id));
-  return views::BubbleAnchor(anchor_view_.get());
+  return anchor_.AnchorAt(GetAnchorRect(action_id));
 }
 
 views::BubbleAnchor BEExtensions::GetExtensionsButtonAnchor() {
   // There's no puzzle piece: the corner.
-  anchor_view_->SetBoundsRect(GetAnchorRect(extensions::ExtensionId()));
-  return views::BubbleAnchor(anchor_view_.get());
+  return anchor_.AnchorAt(GetAnchorRect(extensions::ExtensionId()));
 }
 
 views::BubbleBorder::Arrow BEExtensions::GetPopupArrow() const {

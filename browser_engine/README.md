@@ -8,7 +8,7 @@ in its place is `BEBrowserWindow`, Chrome's third production `BrowserWindow` aft
 `BrowserView` and Webium's `WebUIBrowserWindow`, whose shape it follows at M156.
 
 The app and the engine meet only in `public/BEEngine.h` (a verbatim copy of the app's
-`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 7). The framework exports
+`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 9). The framework exports
 one function, `BEEngineCreate`.
 
 First draft, 30 Oct 2026, against Chromium 156.0.8078.47. Nothing here has been compiled
@@ -53,8 +53,9 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
   gets `didActivateTab:` again and must re-read `tab.view`).
 - **Updates.** Each `BETab` watches its WebContents (loading, progress, navigation, title,
   security, crash) and its favicon driver, plus Chrome's own `OnTabChangedAt()` and the
-  window's `UpdateToolbar*`/`UpdateTitleBar` calls; `tabDidUpdate:` is coalesced to one per
-  task.
+  window's `UpdateToolbar*`/`UpdateTitleBar` calls, and the location bar's
+  `UpdateContentSettingsIcons()` for the active tab (site settings); `tabDidUpdate:` is
+  coalesced to one per task.
 - **Commands.** `BECommand` maps to Chrome command ids and runs through
   `chrome::ExecuteCommand` / `chrome::IsCommandEnabled`, so tab restore, extensions and
   policies see them as Chrome's own. Key equivalents the page doesn't take are redispatched
@@ -87,10 +88,12 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 | `be_autocomplete.{h,mm}` | `BEAutocomplete`: a window's address-bar suggestions, Chrome's `AutocompleteController` with the omnibox's local providers, and opening a suggestion as the omnibox does |
 | `be_browser_window.{h,mm}` | `BEBrowserWindow : BrowserWindow`, its widget delegate and `BENativeWidgetMac` |
 | `be_browser_window_parts.{h,mm}` | Never-null parts Chrome asks for: `BELocationBar`, `BEExclusiveAccessContext`, `BEModalDialogHost`, `BEFindBarOwner` (Webium's, re-pointed), and `BEStatusBubble` (a link's address or the load status, for `BEWindow.statusText`) |
-| `be_extensions.{h,mm}` | `BEExtensions`: a window's extension buttons, Chrome's `ExtensionsToolbarViewModel` with this as its delegate and the window's `ExtensionsContainer` (so `ExtensionsContainer::From()`, `chrome.action.openPopup()` and extension shortcuts find our windows); popups anchor to an empty view placed over the app's button rect |
+| `be_bubble_anchor.{h,mm}` | `BEBubbleAnchor`: what Chrome's bubbles anchor to when their button is the app's, an empty view in the widget's root view placed over the app's rect (extension popups, site-setting bubbles) |
+| `be_extensions.{h,mm}` | `BEExtensions`: a window's extension buttons, Chrome's `ExtensionsToolbarViewModel` with this as its delegate and the window's `ExtensionsContainer` (so `ExtensionsContainer::From()`, `chrome.action.openPopup()` and extension shortcuts find our windows); popups anchor to the app's button rect (`BEBubbleAnchor`) |
+| `be_site_settings.{h,mm}` | The address bar's site-setting icons (`BETab.siteSettings`): Chrome's `ContentSettingImageModel`s for the page, as `BESiteSetting`; `BESiteSettings`, per window, shows an icon's `ContentSettingBubbleContents` below the app's rect, as a click on Chrome's `ContentSettingImageView` does, and watches the macOS location permission as `LocationBarView` does |
 | `be_closed.{h,mm}` | `BERecentlyClosed`: the everyday profile's `TabRestoreService` entries as Chrome's History menu lists them (`BEEngine.recentlyClosed`), and `RestoreClosedItem()` |
 | `be_window.{h,mm}` | `BEChromiumWindow` (`BEWindow`): commands, tab strip events, extension actions, status text |
-| `be_tab.{h,mm}` | `BEChromiumTab` (`BETab`): state, favicon, bookmark state (Chrome's `BookmarkTabHelper`), zoom (`ZoomController`), sound and mute (`RecentlyAudibleHelper`, `SetTabAudioMuted`), coalesced updates, the per-TabHandle registry |
+| `be_tab.{h,mm}` | `BEChromiumTab` (`BETab`): state, favicon, bookmark state (Chrome's `BookmarkTabHelper`), zoom (`ZoomController`), sound and mute (`RecentlyAudibleHelper`, `SetTabAudioMuted`), site settings (`be_site_settings.h`), coalesced updates, the per-TabHandle registry |
 | `../patches/browser_engine/*.patch` | The touch points (below) |
 | `../.github/workflows/iterate.yml`, `../.github/scripts/github_iterate.sh` | The incremental build |
 
@@ -222,6 +225,13 @@ tree in `github_fetch_resources.sh`; the iterate script already skips applied pa
   `TabStripModelObserver::OnTabStripModelChanged()`. Activating, moving or closing a tab
   there, or running a command that does, trips `TabStripModel`'s re-entrancy `CHECK`
   (`tab_strip_model.cc`). Post it to the next turn of the run loop instead.
+- **Site settings.** Read `siteSettings` of the selected tab when it's activated and on
+  each `tabDidUpdate:` (it's computed on every read, as Chrome's location bar refreshes its
+  icons), and hide the icons while the user edits the address, as Chrome does
+  (`LocationBarView::ShouldHideContentSettingImage()`). Call `showSiteSetting:fromRect:` on
+  mouse up, as for extension buttons: the press that closed an icon's bubble doesn't
+  reopen it. The bubble closes by itself when another tab is activated, the page
+  navigates, or the window closes; nothing tells the app when it closes.
 - **Answer the restore offer.** After a crash, `offersRestoreAfterCrash` is set on the startup
   window; until the app calls `restoreAfterCrash` or `declineRestoreAfterCrash`, Chrome saves no
   new session.
@@ -272,6 +282,16 @@ Found while reading, not switchable (guard patches when they bite):
   launches with ungoogled's `--enable-features=DisableQRGenerator`, which hides it.
 - "Send to your devices" (`send_tab_to_self_bubble_controller.cc:107-108`) does the same, but
   only shows with sync or sign-in, which ungoogled-chromium doesn't offer.
+- Site-setting bubbles (`be_site_settings.mm`): their links go through the browser's
+  `BrowserContentSettingBubbleModelDelegate` (settings pages and help pages as tabs in our
+  window, the cookies dialog as a tab-modal dialog), with no BrowserView. Infobars they add
+  (a cookie setting changed: "reload to apply") go to the tab's `ContentInfoBarManager`,
+  which no view shows in our windows. Chrome's bubble that opens by itself
+  (`ShouldAutoOpenBubble()`: camera, microphone or location allowed for the site but off
+  in macOS) doesn't, since only the app knows where the icon is; the icon shows struck
+  through, and a click opens it. At 156 Chrome's bar shows camera and microphone as an
+  activity indicator on its left (`kLeftHandSideActivityIndicators`), whose click opens
+  Page Info on ordinary pages; ours are among the icons, and open the media bubble.
 - Downloads: Chrome's download UI isn't made for our windows (`DownloadToolbarUIController` is
   BrowserView's), and nothing assumes it. The app shows them from `engineDidUpdateDownload:`.
   Files fetched insecurely are held until the app keeps them; with Safe Browsing off nothing is
@@ -302,7 +322,9 @@ tab-strip editing for tests, update dialog, intent picker, bookmark bubble, tran
 bubble, IPH, eye dropper (null), caret browsing dialog, tab search, incognito dialogs,
 unframed mode, Chrome Labs, `AsBrowserView()` (null).
 
-`BELocationBar` is Webium's stub without the permission dashboard: `IsDrawn()` is false, so
+`BELocationBar` is Webium's stub without the permission dashboard, except that
+`UpdateContentSettingsIcons()` sends the active tab's `tabDidUpdate:` (the app re-reads
+`siteSettings`). `IsDrawn()` is false, so
 permission requests take the bubble path (`permission_prompt_factory.cc`). That path checks
 `GetChipController()` (null) for null and anchors to `GetChipAnchor()`, which floats the bubble
 over the window: an empty anchor dereferences the BrowserView (`bubble_anchor_util_views.cc`).
@@ -326,6 +348,9 @@ Marked in code with `// UNVERIFIED:`, plus what reading couldn't settle:
    `accessibilityFocusedUIElement` (focus across processes, for PWA app shims).
 5. The pending `openURLs:` flush runs from a task posted in `PreCreateThreads()`, assumed to
    run after startup's windows exist (the main loop starts after `PreMainMessageLoopRun`).
+6. `be_site_settings.mm`: a press on the app's icon closes its open bubble before the app
+   hears of the click (close-on-deactivate), as `BEExtensions` assumes for popups; if not,
+   `Show()` finds the bubble open and closes it, which looks the same.
 
 ## Open questions
 
