@@ -173,8 +173,8 @@ flavor **dev**), on `macos-26-intel`:
 `github_before_build.sh`, as step 2 does on a dev base. After the last build job,
 `github_prepare_artifacts.sh` runs `github_iterate.sh package` too, and the job uploads
 `engine_x86_64` like an iterate run. It takes the full build's day or two. On the dev Mac, a
-release build (ungoogled 155) painted Google, YouTube and Reddit 10–35% sooner than the dev
-base (156).
+release build (ungoogled 155) first painted YouTube and Reddit 10–30% sooner than the dev base
+(156), and Google about the same.
 
 Each run recompiles the 7 patched Chromium files (the patches are re-applied to a fresh
 base), our 10 sources, and relinks the framework. To save those recompiles, a later dev base
