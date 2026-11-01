@@ -18,10 +18,12 @@
 #include "base/strings/strcat.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#import "browser_engine/be_bookmarks.h"
 #include "browser_engine/be_browser_window.h"
 #import "browser_engine/be_closed.h"
 #include "browser_engine/be_downloads.h"
 #import "browser_engine/be_preferences.h"
+#import "browser_engine/be_visited.h"
 #include "browser_engine/browser_engine_hooks.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
@@ -301,6 +303,20 @@ base::FilePath UserDataDirFromArguments(NSArray<NSString*>* arguments) {
   return base::FilePath();
 }
 
+// `watcher` watching `profile`, made on first use: the closed tabs, history
+// or bookmarks the app's menus list. Null with no profile.
+template <typename Watcher>
+Watcher* Watch(std::unique_ptr<Watcher>& watcher, Profile* profile) {
+  if (!profile) {
+    return nullptr;
+  }
+  if (!watcher) {
+    watcher = std::make_unique<Watcher>();
+  }
+  watcher->ObserveProfile(profile);
+  return watcher.get();
+}
+
 // The profile that addresses from other apps open in: the last active
 // window's, regular rather than incognito (as AppController does).
 Profile* ProfileForOpeningURLs() {
@@ -331,6 +347,8 @@ id<BEEngineDelegate> GetEngineDelegate() {
   NSMutableArray<NSURL*>* _pendingURLs;
   BEChromiumPreferences* _preferences;
   std::unique_ptr<browser_engine::BERecentlyClosed> _recentlyClosed;
+  std::unique_ptr<browser_engine::BERecentlyVisited> _recentlyVisited;
+  std::unique_ptr<browser_engine::BEBookmarks> _bookmarks;
 }
 
 - (instancetype)init {
@@ -344,20 +362,13 @@ id<BEEngineDelegate> GetEngineDelegate() {
   return _delegate;
 }
 
-// Watches the everyday profile's closed tabs and windows (the profile
-// dataFolder is), once Chromium runs; null before, or with no profile.
-- (browser_engine::BERecentlyClosed*)watchRecentlyClosed {
-  Profile* profile = _started && g_browser_process
-                         ? ProfileManager::GetLastUsedProfileIfLoaded()
-                         : nullptr;
-  if (!profile) {
-    return nullptr;
-  }
-  if (!_recentlyClosed) {
-    _recentlyClosed = std::make_unique<browser_engine::BERecentlyClosed>();
-  }
-  _recentlyClosed->ObserveProfile(profile);
-  return _recentlyClosed.get();
+// The everyday profile (the one dataFolder is), whose closed tabs, history
+// and bookmarks the app's menus list, once Chromium runs; null before, or
+// with no profile.
+- (Profile*)everydayProfile {
+  return _started && g_browser_process
+             ? ProfileManager::GetLastUsedProfileIfLoaded()
+             : nullptr;
 }
 
 // MARK: BEEngine
@@ -392,8 +403,20 @@ id<BEEngineDelegate> GetEngineDelegate() {
 
 - (NSArray<id<BEClosedItem>>*)recentlyClosed {
   browser_engine::BERecentlyClosed* recentlyClosed =
-      [self watchRecentlyClosed];
+      browser_engine::Watch(_recentlyClosed, [self everydayProfile]);
   return recentlyClosed ? recentlyClosed->items() : @[];
+}
+
+- (NSArray<id<BEBookmark>>*)bookmarks {
+  browser_engine::BEBookmarks* bookmarks =
+      browser_engine::Watch(_bookmarks, [self everydayProfile]);
+  return bookmarks ? bookmarks->items() : @[];
+}
+
+- (NSArray<id<BEVisitedPage>>*)recentlyVisited {
+  browser_engine::BERecentlyVisited* recentlyVisited =
+      browser_engine::Watch(_recentlyVisited, [self everydayProfile]);
+  return recentlyVisited ? recentlyVisited->items() : @[];
 }
 
 - (id<BEPreferences>)preferences {
@@ -528,10 +551,15 @@ id<BEEngineDelegate> GetEngineDelegate() {
 
 - (void)browserDidStart {
   _started = YES;
-  // Chrome's History menu watches the closed tabs and windows from startup
-  // (HistoryMenuBridge), which loads the last session's: the list, and its
-  // icons, are ready when the app's menu first opens.
-  [self watchRecentlyClosed];
+  // Chrome's History and Bookmarks menus watch from startup
+  // (HistoryMenuBridge, BookmarkMenuBridge), which loads the last session's
+  // closed tabs and windows, asks history for the pages visited last and
+  // loads the bookmarks: the lists, and the history menu's icons, are ready
+  // when the app's menus first open.
+  Profile* profile = [self everydayProfile];
+  browser_engine::Watch(_recentlyClosed, profile);
+  browser_engine::Watch(_recentlyVisited, profile);
+  browser_engine::Watch(_bookmarks, profile);
   if (_pendingURLs.count) {
     NSArray<NSURL*>* urls = [_pendingURLs copy];
     [_pendingURLs removeAllObjects];

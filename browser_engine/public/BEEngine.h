@@ -15,7 +15,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 9
+#define BE_API_VERSION 10
 
 @protocol BEWindow;
 @protocol BETab;
@@ -26,6 +26,8 @@ NS_ASSUME_NONNULL_BEGIN
 @protocol BEExtensionAction;
 @protocol BEClosedItem;
 @protocol BESiteSetting;
+@protocol BEBookmark;
+@protocol BEVisitedPage;
 
 /// Browser commands, run the way Chrome runs them (so ⌘-click and keyboard modifiers, tab
 /// restore and extensions all see them). The engine maps them to Chrome's command ids.
@@ -99,6 +101,14 @@ NS_SWIFT_UI_ACTOR
 /// Tabs and windows closed recently, newest first, as Chrome's History menu lists them (the
 /// everyday profile's). Read it when the menu opens. (Version 8.)
 @property (nonatomic, readonly, copy) NSArray<id<BEClosedItem>> *recentlyClosed;
+/// The everyday profile's bookmarks, as Chrome's Bookmarks menu lists them: a folder of managed
+/// bookmarks if there are any, the bookmarks bar's, then folders for Other Bookmarks and Mobile
+/// Bookmarks if they have any. Empty until Chrome has loaded them. Read it each time the menu
+/// opens. (Version 10.)
+@property (nonatomic, readonly, copy) NSArray<id<BEBookmark>> *bookmarks;
+/// Pages visited recently in the everyday profile, newest first, as Chrome's History menu lists
+/// them. Read it when the menu opens. (Version 10.)
+@property (nonatomic, readonly, copy) NSArray<id<BEVisitedPage>> *recentlyVisited;
 /// The everyday profile's preferences; nil until Chromium has started.
 @property (nonatomic, readonly, nullable) id<BEPreferences> preferences;
 
@@ -252,6 +262,30 @@ NS_SWIFT_UI_ACTOR
 @property (nonatomic, readonly, copy) NSString *title;
 /// A tab's address; nil for a window or group.
 @property (nonatomic, readonly, copy, nullable) NSURL *url;
+@property (nonatomic, readonly, nullable) NSImage *favicon;
+@end
+
+// MARK: Bookmarks and history, for the menus
+
+/// A bookmark or a folder of them. (Chrome: `bookmarks::BookmarkNode`. Version 10.)
+NS_SWIFT_UI_ACTOR
+@protocol BEBookmark <NSObject>
+@property (nonatomic, readonly, copy) NSString *title;
+/// The page; nil for a folder.
+@property (nonatomic, readonly, copy, nullable) NSURL *url;
+/// A folder's bookmarks and folders, in order; empty for a bookmark.
+@property (nonatomic, readonly, copy) NSArray<id<BEBookmark>> *children;
+/// The page's icon once Chrome has loaded it; nil for a folder, and until then. The first read
+/// starts loading it, so read it only for bookmarks being shown.
+@property (nonatomic, readonly, nullable) NSImage *favicon;
+@end
+
+/// A page visited recently. (Version 10.)
+NS_SWIFT_UI_ACTOR
+@protocol BEVisitedPage <NSObject>
+/// The page's title, or its address if it had none.
+@property (nonatomic, readonly, copy) NSString *title;
+@property (nonatomic, readonly, copy) NSURL *url;
 @property (nonatomic, readonly, nullable) NSImage *favicon;
 @end
 

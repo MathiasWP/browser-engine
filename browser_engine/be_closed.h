@@ -19,6 +19,7 @@
 #include "components/sessions/core/tab_restore_service_observer.h"
 
 @class BEChromiumClosedItem;
+@class NSImage;
 
 class BrowserWindowInterface;
 class GURL;
@@ -75,6 +76,14 @@ class BERecentlyClosed : public sessions::TabRestoreServiceObserver {
 // menu does, from the everyday profile's entries. Does nothing for an id
 // that's no longer listed.
 void RestoreClosedItem(BrowserWindowInterface* browser, int32_t identifier);
+
+// Asks `profile`'s history for the icon of the page at `page_url`, as Chrome's
+// History menu does for the items of both its sections. `done` gets it on a
+// later task, unless history has none or `tracker` cancels the request.
+void RequestPageFavicon(Profile* profile,
+                        const GURL& page_url,
+                        base::CancelableTaskTracker* tracker,
+                        void (^done)(NSImage* favicon));
 
 }  // namespace browser_engine
 

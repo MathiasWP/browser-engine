@@ -236,26 +236,16 @@ void BERecentlyClosed::Reset() {
 
 void BERecentlyClosed::RequestFavicon(BEChromiumClosedItem* item,
                                       const GURL& page_url) {
-  // What the menu bridge asks for: the page's favicon from history, 16 points.
-  favicon::FaviconService* service = FaviconServiceFactory::GetForProfile(
-      profile_, ServiceAccessType::EXPLICIT_ACCESS);
-  if (!service) {
-    return;
-  }
   __weak BEChromiumClosedItem* weak_item = item;
   NSURL* requested_url = item.url;
-  service->GetFaviconImageForPageURL(
-      page_url,
-      base::BindOnce(^(const favicon_base::FaviconImageResult& result) {
+  RequestPageFavicon(
+      profile_, page_url, &favicon_tracker_, ^(NSImage* favicon) {
         BEChromiumClosedItem* strong_item = weak_item;
-        // Nil for a page history has no icon for.
-        NSImage* image = result.image.AsNSImage();
-        if (strong_item && image &&
-            [strong_item.url isEqual:requested_url]) {
-          strong_item.favicon = image;
+        // Unless the item shows another page by now.
+        if (strong_item && [strong_item.url isEqual:requested_url]) {
+          strong_item.favicon = favicon;
         }
-      }),
-      &favicon_tracker_);
+      });
 }
 
 void RestoreClosedItem(BrowserWindowInterface* browser, int32_t identifier) {
@@ -286,6 +276,27 @@ void RestoreClosedItem(BrowserWindowInterface* browser, int32_t identifier) {
   // last session goes into `context`. A window opens as it was. An id that
   // isn't listed does nothing.
   service->RestoreEntryById(context, id, WindowOpenDisposition::UNKNOWN);
+}
+
+void RequestPageFavicon(Profile* profile,
+                        const GURL& page_url,
+                        base::CancelableTaskTracker* tracker,
+                        void (^done)(NSImage* favicon)) {
+  // What the menu bridge asks for: the page's favicon from history, 16 points.
+  favicon::FaviconService* service = FaviconServiceFactory::GetForProfile(
+      profile, ServiceAccessType::EXPLICIT_ACCESS);
+  if (!service) {
+    return;
+  }
+  service->GetFaviconImageForPageURL(
+      page_url,
+      base::BindOnce(^(const favicon_base::FaviconImageResult& result) {
+        // Nil for a page history has no icon for.
+        if (NSImage* image = result.image.AsNSImage()) {
+          done(image);
+        }
+      }),
+      tracker);
 }
 
 }  // namespace browser_engine

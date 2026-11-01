@@ -8,7 +8,7 @@ in its place is `BEBrowserWindow`, Chrome's third production `BrowserWindow` aft
 `BrowserView` and Webium's `WebUIBrowserWindow`, whose shape it follows at M156.
 
 The app and the engine meet only in `public/BEEngine.h` (a verbatim copy of the app's
-`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 9). The framework exports
+`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 10). The framework exports
 one function, `BEEngineCreate`.
 
 First draft, 30 Oct 2026, against Chromium 156.0.8078.47. Nothing here has been compiled
@@ -91,7 +91,9 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 | `be_bubble_anchor.{h,mm}` | `BEBubbleAnchor`: what Chrome's bubbles anchor to when their button is the app's, an empty view in the widget's root view placed over the app's rect (extension popups, site-setting bubbles) |
 | `be_extensions.{h,mm}` | `BEExtensions`: a window's extension buttons, Chrome's `ExtensionsToolbarViewModel` with this as its delegate and the window's `ExtensionsContainer` (so `ExtensionsContainer::From()`, `chrome.action.openPopup()` and extension shortcuts find our windows); popups anchor to the app's button rect (`BEBubbleAnchor`) |
 | `be_site_settings.{h,mm}` | The address bar's site-setting icons (`BETab.siteSettings`): Chrome's `ContentSettingImageModel`s for the page, as `BESiteSetting`; `BESiteSettings`, per window, shows an icon's `ContentSettingBubbleContents` below the app's rect, as a click on Chrome's `ContentSettingImageView` does, and watches the macOS location permission as `LocationBarView` does |
-| `be_closed.{h,mm}` | `BERecentlyClosed`: the everyday profile's `TabRestoreService` entries as Chrome's History menu lists them (`BEEngine.recentlyClosed`), and `RestoreClosedItem()` |
+| `be_closed.{h,mm}` | `BERecentlyClosed`: the everyday profile's `TabRestoreService` entries as Chrome's History menu lists them (`BEEngine.recentlyClosed`), `RestoreClosedItem()`, and `RequestPageFavicon()`, the menu's icon request for both its sections |
+| `be_visited.{h,mm}` | `BERecentlyVisited`: the everyday profile's latest pages as Chrome's History menu lists them ("Recently Visited": `HistoryService::QueryHistory()` with the menu's options, asked again 750 ms after history changes), as `BEVisitedPage` (`BEEngine.recentlyVisited`) |
+| `be_bookmarks.{h,mm}` | `BEBookmarks`: the everyday profile's bookmarks as Chrome's Bookmarks menu lists them (`BookmarkMenuBridge`, through `BookmarkMergedSurfaceService`), as `BEBookmark` (`BEEngine.bookmarks`), listed again on the first read after a change; icons from `BookmarkModel::GetFavicon()` when read |
 | `be_window.{h,mm}` | `BEChromiumWindow` (`BEWindow`): commands, tab strip events, extension actions, status text |
 | `be_tab.{h,mm}` | `BEChromiumTab` (`BETab`): state, favicon, bookmark state (Chrome's `BookmarkTabHelper`), zoom (`ZoomController`), sound and mute (`RecentlyAudibleHelper`, `SetTabAudioMuted`), site settings (`be_site_settings.h`), coalesced updates, the per-TabHandle registry |
 | `../patches/browser_engine/*.patch` | The touch points (below) |
@@ -232,6 +234,24 @@ tree in `github_fetch_resources.sh`; the iterate script already skips applied pa
   mouse up, as for extension buttons: the press that closed an icon's bubble doesn't
   reopen it. The bubble closes by itself when another tab is activated, the page
   navigates, or the window closes; nothing tells the app when it closes.
+- **Bookmarks and History menus.** Read `bookmarks`, `recentlyVisited` and `recentlyClosed`
+  when the menu opens; before Chromium has started they're empty. `bookmarks` is what Chrome's
+  Bookmarks menu lists below its own items: the managed bookmarks' folder (when a policy sets
+  any), the bookmarks bar's bookmarks and folders, then Other Bookmarks and Mobile Bookmarks as
+  folders. Each of those three folders is left out while it's empty, and everything is until
+  the bookmarks have loaded. Chrome draws a separator before the managed folder or the bar's
+  bookmarks, and one before Other or Mobile Bookmarks; v10 doesn't say where those groups
+  meet. An empty folder has no `children` (Chrome shows "(empty)" in it). A bookmark's
+  `favicon` is nil until Chrome has loaded it: the first read starts the load, as Chrome's
+  menu does when it adds the item, and a later read has it (Chrome shows its default page icon
+  meanwhile). `recentlyVisited` is the 15 pages visited last within 90 days, newest first,
+  each once, without pages that weren't found. It's asked for 750 ms after history loads and
+  after each change, so a visit shows up about a second later. Its icons arrive later, into
+  the same objects. Titles are whole: Chrome's menus cut them in the middle to 400 points in
+  the menu font (`gfx::ElideMenuItemTitle()`). Chrome opens both menus' items as
+  `PAGE_TRANSITION_AUTO_BOOKMARK`, in the active tab, a background tab with ⌘ or a window
+  with ⇧. v10 has no call for that: `loadURL:` records a typed visit (which the address bar
+  ranks higher), `openURL:inBackground:` a link.
 - **Answer the restore offer.** After a crash, `offersRestoreAfterCrash` is set on the startup
   window; until the app calls `restoreAfterCrash` or `declineRestoreAfterCrash`, Chrome saves no
   new session.
