@@ -44,6 +44,7 @@ class BEExtensions;
 class BEFindBarOwner;
 class BELocationBar;
 class BEModalDialogHost;
+class BEBubbleAnchor;
 class BESiteSettings;
 class BEStatusBubble;
 
@@ -329,6 +330,9 @@ class BEBrowserWindow : public BrowserWindow,
   std::unique_ptr<BEExtensions> extensions_;
   // Made in OnBrowserInitialized(), destroyed right after `extensions_`.
   std::unique_ptr<BESiteSettings> site_settings_;
+  // Where Chrome's bookmark bubble points: the app's star. Made in
+  // OnBrowserInitialized(), destroyed with `site_settings_`.
+  std::unique_ptr<BEBubbleAnchor> bookmark_anchor_;
 
   // Lets DevTools dock in our window (DevToolsWindow::Create() asks for it).
   // It has none of BrowserView's views to lay out: BETab hands docked DevTools

@@ -15,7 +15,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 12
+#define BE_API_VERSION 13
 
 @protocol BEEngine;
 @protocol BEWindow;
@@ -65,6 +65,9 @@ typedef NS_ENUM(NSInteger, BECommand) {
     BECommandDevToolsInspect,
     BECommandShowHistory,
     BECommandShowDownloads,
+    /// Bookmarks the page if it isn't, and shows Chrome's bookmark bubble (name, folder, Remove,
+    /// More…) at `bookmarkButtonRectForWindow:`, as ⌘D and Chrome's star do. (The bubble: version
+    /// 13.)
     BECommandBookmarkPage,
     BECommandShowBookmarks,
     BECommandClearBrowsingData,
@@ -372,6 +375,10 @@ NS_SWIFT_UI_ACTOR
 - (void)windowDidChangeStatus:(id<BEWindow>)window;
 /// `showsBookmarkBar` changed. (Version 12.)
 - (void)windowDidChangeBookmarkBar:(id<BEWindow>)window;
+/// Where the app's bookmark star is now, in the window's coordinates (from its bottom left), for
+/// Chrome's bookmark bubble to point at; an empty rect while there's none, and the bubble points
+/// at the window's top right. (Version 13.)
+- (NSRect)bookmarkButtonRectForWindow:(id<BEWindow>)window;
 @end
 
 NS_SWIFT_UI_ACTOR

@@ -10,6 +10,7 @@
 #include "base/functional/bind.h"
 #include "base/notimplemented.h"
 #include "browser_engine/be_browser_window_parts.h"
+#import "browser_engine/be_bubble_anchor.h"
 #import "browser_engine/be_extensions.h"
 #import "browser_engine/be_site_settings.h"
 #import "browser_engine/be_tab.h"
@@ -36,6 +37,7 @@
 #include "chrome/browser/ui/interaction/browser_elements.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/unload_controller.h"
+#include "chrome/browser/ui/views/bookmarks/bookmark_bubble_view.h"
 #include "chrome/browser/ui/views/download/download_in_progress_dialog_view.h"
 #include "chrome/browser/ui/views/find_bar_host.h"
 #include "chrome/browser/ui/views/find_bar_owner.h"
@@ -305,6 +307,9 @@ BEBrowserWindow::~BEBrowserWindow() {
   // An open site-setting bubble closes, while the browser's
   // ContentSettingBubbleModelDelegate it uses is there.
   site_settings_.reset();
+  // Before the widget, as BEBubbleAnchor asks; an open bookmark bubble closes
+  // with the window.
+  bookmark_anchor_.reset();
 
   // Before the FullscreenController goes with the features below.
   fullscreen_subscription_ = {};
@@ -364,6 +369,7 @@ void BEBrowserWindow::OnBrowserInitialized() {
   // The site-setting icons' bubbles, as BrowserView's location bar shows
   // them.
   site_settings_ = std::make_unique<BESiteSettings>(this);
+  bookmark_anchor_ = std::make_unique<BEBubbleAnchor>(widget_.get());
   // Whether the bookmarks bar shows, as BrowserWindowFeatures hands it to
   // BrowserView and WebUIBrowserWindow (InitPostWindowConstruction()), and
   // takes it back before the window goes.
@@ -665,8 +671,23 @@ void BEBrowserWindow::ShowIntentPickerBubble(
 
 void BEBrowserWindow::ShowBookmarkBubble(const GURL& url,
                                          bool already_bookmarked) {
-  // The app shows bookmark state itself (BETab isBookmarked).
-  NOTIMPLEMENTED_LOG_ONCE();
+  content::WebContents* contents =
+      browser_->GetTabStripModel()->GetActiveWebContents();
+  if (!contents || !bookmark_anchor_) {
+    return;
+  }
+  // ToolbarView::ShowBookmarkBubble(), pointing at the app's star, or at the
+  // window's top right without one (as extension popups do).
+  const NSRect star = [objc_window_ bookmarkButtonRect];
+  const gfx::Rect anchor_rect =
+      NSIsEmptyRect(star)
+          ? gfx::Rect(bookmark_anchor_->GetRootWidth() - 12, 0, 0, 40)
+          : bookmark_anchor_->ConvertFromScreen([GetNativeWindow()
+                                                         .GetNativeNSWindow()
+                convertRectToScreen:star]);
+  BookmarkBubbleView::ShowBubble(bookmark_anchor_->AnchorAt(anchor_rect),
+                                 contents, /*highlighted_button=*/nullptr,
+                                 browser_, url, already_bookmarked);
 }
 
 ShowTranslateBubbleResult BEBrowserWindow::ShowTranslateBubble(

@@ -340,6 +340,10 @@ int CommandIdForCommand(BECommand command) {
   [_delegate windowWantsLocationFocus:self];
 }
 
+- (NSRect)bookmarkButtonRect {
+  return _window ? [_delegate bookmarkButtonRectForWindow:self] : NSZeroRect;
+}
+
 - (void)fullscreenStateDidChange {
   // Chrome calls this while its FullscreenController notifies (from a task it
   // posted). Look again on a task of our own, so the app never runs inside

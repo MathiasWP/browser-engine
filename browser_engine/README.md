@@ -290,8 +290,14 @@ tree in `github_fetch_resources.sh`; the iterate script already skips applied pa
   Chrome's own menu, whose Edit…, Add Page… and Add Folder… open Chrome's bookmark editor on the
   window. Drops are `moveBookmark:toFolder:atIndex:` (a bookmark dragged on the bar; the index
   counts before the move) and `addBookmarkForURL:title:toFolder:atIndex:` (a link from a page
-  or another app). Note that ⌘D and the star save into the folder used last, Other Bookmarks
-  on a new profile, as in Chrome: so they show under All Bookmarks, not on the bar.
+  or another app). ⌘D and the star save into the folder used last, Other Bookmarks on a new
+  profile, as in Chrome, so they show under All Bookmarks; Chrome's bookmark bubble (v13) is
+  where the user picks the bar instead.
+- **The star (v13).** Run `BECommandBookmarkPage` for the app's star, as for ⌘D: Chrome
+  bookmarks the page if it isn't and shows its bookmark bubble (name, folder, Remove, More…),
+  pointing at `bookmarkButtonRectForWindow:`, which the delegate answers with the star's rect
+  in window coordinates, or an empty rect for the window's top right. `setBookmarked:` stays for
+  a star that only toggles.
 - **Answer the restore offer.** After a crash, `offersRestoreAfterCrash` is set on the startup
   window; until the app calls `restoreAfterCrash` or `declineRestoreAfterCrash`, Chrome saves no
   new session.

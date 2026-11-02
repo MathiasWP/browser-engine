@@ -37,6 +37,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)activeTabDidChange;
 // Chrome wants the address field focused.
 - (void)wantsLocationFocus;
+// Where the app's star is now, in the window's coordinates; empty without one.
+- (NSRect)bookmarkButtonRect;
 // Chrome's fullscreen state changed, a page's or the window's. On a later
 // task, tells the delegate windowDidChangePageFullscreen: if isPageFullscreen
 // is no longer what it last heard.
