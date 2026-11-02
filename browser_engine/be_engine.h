@@ -18,6 +18,8 @@ namespace browser_engine {
 // The delegate the app passed to -runWithArguments:delegate:, while Chromium
 // runs; nil otherwise.
 id<BEEngineDelegate> _Nullable GetEngineDelegate();
+// The engine the app holds, for the delegate's calls.
+id<BEEngine> GetEngine();
 
 }  // namespace browser_engine
 

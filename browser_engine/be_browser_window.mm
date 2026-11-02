@@ -364,6 +364,13 @@ void BEBrowserWindow::OnBrowserInitialized() {
   // The site-setting icons' bubbles, as BrowserView's location bar shows
   // them.
   site_settings_ = std::make_unique<BESiteSettings>(this);
+  // Whether the bookmarks bar shows, as BrowserWindowFeatures hands it to
+  // BrowserView and WebUIBrowserWindow (InitPostWindowConstruction()), and
+  // takes it back before the window goes.
+  if (BookmarkBarController* bookmark_bar =
+          BookmarkBarController::From(browser_)) {
+    bookmark_bar->SetDelegate(this);
+  }
   // InitPostWindowConstruction made the ExclusiveAccessManager after us and
   // before this hook. Its FullscreenController tells its subscribers about
   // every change, from a posted task: a page entering or leaving fullscreen
@@ -522,9 +529,19 @@ void BEBrowserWindow::OnActiveTabChanged(content::WebContents* old_contents,
   if (new_contents) {
     new_contents->SetColorProviderSource(widget_.get());
   }
+  // Browser updated the bookmarks bar's state for the new tab without
+  // telling the delegate (BookmarkBarController::UpdateBookmarkBarState()
+  // leaves a tab switch to the window), so look.
+  [objc_window_ bookmarkBarStateDidChange];
   // Visibility follows the page's NSView entering and leaving the window,
   // which the app does on didActivateTab: (as in content_shell), so unlike
   // Webium there is no UpdateWebContentsVisibility() here.
+}
+
+void BEBrowserWindow::OnBookmarkBarStateChanged(
+    BookmarkBar::AnimateChangeType change_type) {
+  // The app shows or hides its bar without animating.
+  [objc_window_ bookmarkBarStateDidChange];
 }
 
 void BEBrowserWindow::OnTabDetached(content::WebContents* contents,

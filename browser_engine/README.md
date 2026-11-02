@@ -94,7 +94,8 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 | `be_site_settings.{h,mm}` | The address bar's site-setting icons (`BETab.siteSettings`): Chrome's `ContentSettingImageModel`s for the page, as `BESiteSetting`; `BESiteSettings`, per window, shows an icon's `ContentSettingBubbleContents` below the app's rect, as a click on Chrome's `ContentSettingImageView` does, and watches the macOS location permission as `LocationBarView` does |
 | `be_closed.{h,mm}` | `BERecentlyClosed`: the everyday profile's `TabRestoreService` entries as Chrome's History menu lists them (`BEEngine.recentlyClosed`), `RestoreClosedItem()`, and `RequestPageFavicon()`, the menu's icon request for both its sections |
 | `be_visited.{h,mm}` | `BERecentlyVisited`: the everyday profile's latest pages as Chrome's History menu lists them ("Recently Visited": `HistoryService::QueryHistory()` with the menu's options, asked again 750 ms after history changes), as `BEVisitedPage` (`BEEngine.recentlyVisited`) |
-| `be_bookmarks.{h,mm}` | `BEBookmarks`: the everyday profile's bookmarks as Chrome's Bookmarks menu lists them (`BookmarkMenuBridge`, through `BookmarkMergedSurfaceService`), as `BEBookmark` (`BEEngine.bookmarks`), listed again on the first read after a change; icons from `BookmarkModel::GetFavicon()` when read |
+| `be_bookmarks.{h,mm}` | `BEBookmarks`: the everyday profile's bookmarks as Chrome's Bookmarks menu lists them (`BookmarkMenuBridge`, through `BookmarkMergedSurfaceService`) and its bookmarks bar shows them (the bar folder, All Bookmarks), as `BEBookmark` (`BEEngine.bookmarks`, `bookmarkBar`, `otherBookmarks`), listed again on the first read after a change, which `engineDidChangeBookmarks:` announces; icons from `BookmarkModel::GetFavicon()` when read |
+| `be_bookmark_bar.{h,mm}` | `BEBookmarkBar`: a window's bookmarks bar as `BookmarkBarView` drives Chrome's: `BookmarkBarUIControllerImpl` with the desktop adapters opens bookmarks and folders and shows Chrome's `BookmarkContextMenu`; drops go through `BookmarkUIOperationsHelperMergedSurfaces::DropBookmarks()` with the bar's drop rules. `BEBrowserWindow` is the window's `BookmarkBarController::Delegate`, for `BEWindow.showsBookmarkBar` |
 | `be_window.{h,mm}` | `BEChromiumWindow` (`BEWindow`): commands, tab strip events, extension actions, status text |
 | `be_tab.{h,mm}` | `BEChromiumTab` (`BETab`): state, favicon, bookmark state (Chrome's `BookmarkTabHelper`), zoom (`ZoomController`), sound and mute (`RecentlyAudibleHelper`, `SetTabAudioMuted`), site settings (`be_site_settings.h`), infobars (`be_infobars.h`), coalesced updates, the per-TabHandle registry |
 | `../patches/browser_engine/*.patch` | The touch points (below) |
@@ -274,6 +275,23 @@ tree in `github_fetch_resources.sh`; the iterate script already skips applied pa
   `PAGE_TRANSITION_AUTO_BOOKMARK`, in the active tab, a background tab with ⌘ or a window
   with ⇧. v10 has no call for that: `loadURL:` records a typed visit (which the address bar
   ranks higher), `openURL:inBackground:` a link.
+- **The bookmarks bar (v12).** Show it while `showsBookmarkBar` is set; Chrome decides
+  (`BookmarkBarController`): always with the visibility preference at Always Show (⇧⌘B,
+  `BECommandToggleBookmarkBar`), otherwise only on a new tab page once there are bookmarks
+  (Chrome may turn that off itself after a couple of weeks of the bar on new tab pages), never
+  for guests or while a page is full screen. `windowDidChangeBookmarkBar:` says when it
+  changes, tab switches included. Draw `bookmarkBar`'s children in order, a chevron menu for
+  those that don't fit, and `otherBookmarks` (titled "All Bookmarks") at the end when it's
+  there; read them again on `engineDidChangeBookmarks:`, which also comes when an icon has
+  loaded. There's no hint text in an empty bar at M156. A click is `openBookmark:event:` with
+  the click's event, so Chrome picks the tab or window as its bar does; for a folder, show its
+  bookmarks as a menu, and send `openBookmark:event:` for a ⌘- or middle click, which opens
+  them all. Right-click is `showMenuForBookmark:atPoint:inView:` (0 for the bar itself):
+  Chrome's own menu, whose Edit…, Add Page… and Add Folder… open Chrome's bookmark editor on the
+  window. Drops are `moveBookmark:toFolder:atIndex:` (a bookmark dragged on the bar; the index
+  counts before the move) and `addBookmarkForURL:title:toFolder:atIndex:` (a link from a page
+  or another app). Note that ⌘D and the star save into the folder used last, Other Bookmarks
+  on a new profile, as in Chrome: so they show under All Bookmarks, not on the bar.
 - **Answer the restore offer.** After a crash, `offersRestoreAfterCrash` is set on the startup
   window; until the app calls `restoreAfterCrash` or `declineRestoreAfterCrash`, Chrome saves no
   new session.

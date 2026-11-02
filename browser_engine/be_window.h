@@ -46,6 +46,10 @@ NS_ASSUME_NONNULL_BEGIN
 // window closes, keeping the crash unacknowledged as the open bubble does, and
 // tells the delegate windowDidChangeRestoreOffer: on a later task.
 - (void)offerRestoreAfterCrash;
+// Whether the bookmarks bar shows may have changed. On a later task, tells
+// the delegate windowDidChangeBookmarkBar: if showsBookmarkBar is no longer
+// what it last heard.
+- (void)bookmarkBarStateDidChange;
 // The status bubble's text changed (BEBrowserWindow::GetStatusText()). On a
 // later task, tells the delegate windowDidChangeStatus: if statusText is no
 // longer what it last heard.

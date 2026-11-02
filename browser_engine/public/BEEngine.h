@@ -15,8 +15,9 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 11
+#define BE_API_VERSION 12
 
+@protocol BEEngine;
 @protocol BEWindow;
 @protocol BETab;
 @protocol BEPreferences;
@@ -69,6 +70,8 @@ typedef NS_ENUM(NSInteger, BECommand) {
     BECommandClearBrowsingData,
     BECommandDuplicateTab,
     BECommandTaskManager,
+    /// "Always Show Bookmarks Bar" on or off, as ⇧⌘B does in Chrome. (Version 12.)
+    BECommandToggleBookmarkBar,
 };
 
 /// How a page's connection reads in the address bar. (Chrome: `security_state::SecurityLevel`)
@@ -90,6 +93,9 @@ NS_SWIFT_UI_ACTOR
 /// A download started or changed: progress, a new name, finished, failed. For downloads in any
 /// window, private ones included. (Version 3.)
 - (void)engineDidUpdateDownload:(id<BEDownload>)download;
+/// The everyday profile's bookmarks changed: one was added, removed, moved, renamed, or its icon
+/// arrived. Read `bookmarkBar` again. At most once per task. (Version 12.)
+- (void)engineDidChangeBookmarks:(id<BEEngine>)engine;
 @end
 
 NS_SWIFT_UI_ACTOR
@@ -110,6 +116,13 @@ NS_SWIFT_UI_ACTOR
 /// Pages visited recently in the everyday profile, newest first, as Chrome's History menu lists
 /// them. Read it when the menu opens. (Version 10.)
 @property (nonatomic, readonly, copy) NSArray<id<BEVisitedPage>> *recentlyVisited;
+/// What Chrome's bookmarks bar shows (the everyday profile's): the bar's bookmarks and folders,
+/// in order, as the folder's children. Nil until Chrome has loaded the bookmarks.
+/// `engineDidChangeBookmarks:` says when it changes. (Version 12.)
+@property (nonatomic, readonly, nullable) id<BEBookmark> bookmarkBar;
+/// The folder at the bar's end, as Chrome's bar has it: "All Bookmarks", Other Bookmarks'
+/// contents; nil while that's empty. (Version 12.)
+@property (nonatomic, readonly, nullable) id<BEBookmark> otherBookmarks;
 /// The everyday profile's preferences; nil until Chromium has started.
 @property (nonatomic, readonly, nullable) id<BEPreferences> preferences;
 
@@ -271,6 +284,8 @@ NS_SWIFT_UI_ACTOR
 /// A bookmark or a folder of them. (Chrome: `bookmarks::BookmarkNode`. Version 10.)
 NS_SWIFT_UI_ACTOR
 @protocol BEBookmark <NSObject>
+/// Chrome's id for the bookmark or folder, unique and kept while it exists. (Version 12.)
+@property (nonatomic, readonly) int64_t identifier;
 @property (nonatomic, readonly, copy) NSString *title;
 /// The page; nil for a folder.
 @property (nonatomic, readonly, copy, nullable) NSURL *url;
@@ -355,6 +370,8 @@ NS_SWIFT_UI_ACTOR
 - (void)windowDidUpdateExtensionActions:(id<BEWindow>)window;
 /// `statusText` changed. (Version 8.)
 - (void)windowDidChangeStatus:(id<BEWindow>)window;
+/// `showsBookmarkBar` changed. (Version 12.)
+- (void)windowDidChangeBookmarkBar:(id<BEWindow>)window;
 @end
 
 NS_SWIFT_UI_ACTOR
@@ -403,6 +420,28 @@ NS_SWIFT_UI_ACTOR
 /// the pointer, or what a loading page waits for ("Waiting for example.com…"); empty for
 /// nothing. `windowDidChangeStatus:` says when it changes. (Chrome: `StatusBubble`. Version 8.)
 @property (nonatomic, readonly, copy) NSString *statusText;
+
+/// Whether Chrome shows its bookmarks bar in this window now: always with "Always Show Bookmarks
+/// Bar" on, else on a new tab page once there are bookmarks, never while a page is full screen.
+/// `windowDidChangeBookmarkBar:` says when it changes. (Chrome: `BookmarkBarController`. Version
+/// 12.)
+@property (nonatomic, readonly) BOOL showsBookmarkBar;
+/// Opens a bookmark as a click on Chrome's bar does: in the active tab, or where `event`'s
+/// modifiers or middle button send it (⌘ a background tab, ⇧ a new window); a folder's
+/// bookmarks all open in tabs. (Version 12.)
+- (void)openBookmark:(int64_t)identifier event:(nullable NSEvent *)event;
+/// Shows Chrome's menu for a bookmark or folder on the bar, or for the bar itself with 0, at
+/// `point` in `view` (Open in New Tab, Edit…, Delete, Add Page…, Add Folder…, Bookmark Manager,
+/// Always Show Bookmarks Bar), and does what's chosen. (Chrome: `BookmarkContextMenu`. Version
+/// 12.)
+- (void)showMenuForBookmark:(int64_t)identifier atPoint:(NSPoint)point inView:(NSView *)view;
+/// Moves a bookmark or folder into the folder `folder` at `index` (counted before the move), as
+/// dropping it on Chrome's bar does; nothing where the bar wouldn't drop it (a folder into
+/// itself, a managed bookmark). Identifiers are `BEBookmark` identifiers. (Version 12.)
+- (void)moveBookmark:(int64_t)bookmark toFolder:(int64_t)folder atIndex:(NSInteger)index;
+/// Bookmarks `url` in the folder `folder` at `index`, as dropping a link on Chrome's bar does.
+/// (Version 12.)
+- (void)addBookmarkForURL:(NSURL *)url title:(NSString *)title toFolder:(int64_t)folder atIndex:(NSInteger)index;
 
 /// Suggests for what's typed in the address field, as Chrome's omnibox does. No inline
 /// completion right after the user deleted text.

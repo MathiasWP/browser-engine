@@ -337,6 +337,10 @@ id<BEEngineDelegate> GetEngineDelegate() {
   return Engine().delegate;
 }
 
+id<BEEngine> GetEngine() {
+  return Engine();
+}
+
 }  // namespace browser_engine
 
 @implementation BEChromiumEngine {
@@ -411,6 +415,18 @@ id<BEEngineDelegate> GetEngineDelegate() {
   browser_engine::BEBookmarks* bookmarks =
       browser_engine::Watch(_bookmarks, [self everydayProfile]);
   return bookmarks ? bookmarks->items() : @[];
+}
+
+- (id<BEBookmark>)bookmarkBar {
+  browser_engine::BEBookmarks* bookmarks =
+      browser_engine::Watch(_bookmarks, [self everydayProfile]);
+  return bookmarks ? bookmarks->bar() : nil;
+}
+
+- (id<BEBookmark>)otherBookmarks {
+  browser_engine::BEBookmarks* bookmarks =
+      browser_engine::Watch(_bookmarks, [self everydayProfile]);
+  return bookmarks ? bookmarks->other() : nil;
 }
 
 - (NSArray<id<BEVisitedPage>>*)recentlyVisited {

@@ -17,6 +17,7 @@
 
 #include "base/callback_list.h"
 #include "base/memory/raw_ptr.h"
+#include "chrome/browser/ui/bookmarks/bookmark_bar_controller.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "ui/base/accelerators/accelerator.h"
@@ -47,6 +48,7 @@ class BESiteSettings;
 class BEStatusBubble;
 
 class BEBrowserWindow : public BrowserWindow,
+                        public BookmarkBarController::Delegate,
                         public TabStripModelObserver,
                         public ui::AcceleratorProvider,
                         public ui::AcceleratorTarget,
@@ -242,6 +244,11 @@ class BEBrowserWindow : public BrowserWindow,
   void FlashFrame(bool flash) override;
   ui::ZOrderLevel GetZOrderLevel() const override;
   void SetZOrderLevel(ui::ZOrderLevel order) override;
+
+  // BookmarkBarController::Delegate: whether the bar shows changed (not on a
+  // tab switch; see OnActiveTabChanged()).
+  void OnBookmarkBarStateChanged(
+      BookmarkBar::AnimateChangeType change_type) override;
 
   // TabStripModelObserver:
   void OnTabStripModelChanged(

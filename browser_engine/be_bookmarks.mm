@@ -7,14 +7,19 @@
 #include <utility>
 #include <vector>
 
+#include "base/functional/bind.h"
 #include "base/strings/sys_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
+#import "browser_engine/be_engine.h"
 #include "chrome/browser/bookmarks/bookmark_merged_surface_service.h"
 #include "chrome/browser/bookmarks/bookmark_merged_surface_service_factory.h"
 #include "chrome/browser/bookmarks/bookmark_parent_folder.h"
 #include "chrome/browser/bookmarks/bookmark_parent_folder_children.h"
+#include "chrome/grit/generated_resources.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "net/base/apple/url_conversions.h"
+#include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/gfx/image/image.h"
 #include "url/gurl.h"
 
@@ -26,7 +31,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface BEChromiumBookmark : NSObject <BEBookmark>
 - (instancetype)initFolderWithTitle:(NSString*)title
                            children:(NSArray<BEChromiumBookmark*>*)children
-    NS_DESIGNATED_INITIALIZER;
+                             nodeID:(int64_t)nodeID NS_DESIGNATED_INITIALIZER;
 - (instancetype)initWithTitle:(NSString*)title
                           url:(NSURL*)url
                        nodeID:(int64_t)nodeID
@@ -38,7 +43,8 @@ NS_ASSUME_NONNULL_BEGIN
 NS_ASSUME_NONNULL_END
 
 @implementation BEChromiumBookmark {
-  // A bookmark's node, which `_owner` has the icon of.
+  // The node, which `_owner` has the icon of for a bookmark. For a permanent
+  // folder, its first node (the account's, if there is one).
   int64_t _nodeID;
   // Null for a folder, and once the bookmarks of another profile, or none,
   // are watched.
@@ -50,12 +56,18 @@ NS_ASSUME_NONNULL_END
 @synthesize children = _children;
 
 - (instancetype)initFolderWithTitle:(NSString*)title
-                           children:(NSArray<BEChromiumBookmark*>*)children {
+                           children:(NSArray<BEChromiumBookmark*>*)children
+                             nodeID:(int64_t)nodeID {
   if ((self = [super init])) {
     _title = [title copy];
     _children = [children copy];
+    _nodeID = nodeID;
   }
   return self;
+}
+
+- (int64_t)identifier {
+  return _nodeID;
 }
 
 - (instancetype)initWithTitle:(NSString*)title
@@ -109,6 +121,9 @@ void BEBookmarks::ObserveProfile(Profile* profile) {
   }
   profile_ = profile;
   service_observation_.Observe(service);
+  if (service->loaded()) {
+    NotifyChange();
+  }
 }
 
 NSArray<id<BEBookmark>>* BEBookmarks::items() {
@@ -148,6 +163,33 @@ NSArray<id<BEBookmark>>* BEBookmarks::items() {
   }
   items_ = [items copy];
   return items_;
+}
+
+id<BEBookmark> BEBookmarks::bar() {
+  BookmarkMergedSurfaceService* service = service_observation_.GetSource();
+  if (!service || !service->loaded()) {
+    return nil;
+  }
+  if (!bar_) {
+    bar_ = FolderItem(BookmarkParentFolder::BookmarkBarFolder());
+  }
+  return bar_;
+}
+
+id<BEBookmark> BEBookmarks::other() {
+  BookmarkMergedSurfaceService* service = service_observation_.GetSource();
+  // BookmarkBarView::UpdateOtherAndManagedButtonsVisibility().
+  const BookmarkParentFolder other_folder = BookmarkParentFolder::OtherFolder();
+  if (!service || !service->loaded() ||
+      !service->GetChildrenCount(other_folder)) {
+    return nil;
+  }
+  if (!other_) {
+    other_ = FolderItem(
+        other_folder,
+        l10n_util::GetNSString(IDS_BOOKMARKS_ALL_BOOKMARKS));
+  }
+  return other_;
 }
 
 NSImage* BEBookmarks::GetFavicon(int64_t node_id) {
@@ -197,7 +239,9 @@ void BEBookmarks::BookmarkNodeChanged(const bookmarks::BookmarkNode* node) {
 
 void BEBookmarks::BookmarkNodeFaviconChanged(
     const bookmarks::BookmarkNode* node) {
-  // Nothing to do: each read of a bookmark's icon asks the model.
+  // The lists stand: each read of a bookmark's icon asks the model. The bar
+  // shows the icons, so it looks again.
+  NotifyChange();
 }
 
 void BEBookmarks::BookmarkParentFolderChildrenReordered(
@@ -211,7 +255,26 @@ void BEBookmarks::BookmarkAllUserNodesRemoved() {
 
 void BEBookmarks::Invalidate() {
   items_ = nil;
+  bar_ = nil;
+  other_ = nil;
   listed_nodes_.clear();
+  NotifyChange();
+}
+
+void BEBookmarks::NotifyChange() {
+  if (change_pending_) {
+    return;
+  }
+  change_pending_ = true;
+  // From inside the model's notifications, where the app mustn't read it back.
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&BEBookmarks::SendChange,
+                                notify_factory_.GetWeakPtr()));
+}
+
+void BEBookmarks::SendChange() {
+  change_pending_ = false;
+  [GetEngineDelegate() engineDidChangeBookmarks:GetEngine()];
 }
 
 void BEBookmarks::Reset() {
@@ -223,8 +286,8 @@ void BEBookmarks::Reset() {
   weak_factory_.InvalidateWeakPtrs();
 }
 
-BEChromiumBookmark* BEBookmarks::FolderItem(
-    const BookmarkParentFolder& folder) {
+BEChromiumBookmark* BEBookmarks::FolderItem(const BookmarkParentFolder& folder,
+                                            NSString* title) {
   BookmarkMergedSurfaceService* service = service_observation_.GetSource();
   // BookmarkMenuBridge::AddSubmenu(): a folder is titled as its first node
   // is. For a permanent folder that's the account's, if there is one, else
@@ -233,8 +296,10 @@ BEChromiumBookmark* BEBookmarks::FolderItem(
   // bookmarks: without them, it may have no node, which this CHECKs.)
   const std::vector<const bookmarks::BookmarkNode*> nodes =
       service->GetUnderlyingNodes(folder);
-  NSString* title =
-      nodes.empty() || !nodes.front() ? @"" : Title(nodes.front());
+  const bookmarks::BookmarkNode* first = nodes.empty() ? nullptr : nodes.front();
+  if (!title) {
+    title = first ? Title(first) : @"";
+  }
   // An empty folder has no children; Chrome's menu shows "(empty)" in it.
   NSMutableArray<BEChromiumBookmark*>* children = [NSMutableArray array];
   for (const bookmarks::BookmarkNode* node : service->GetChildren(folder)) {
@@ -243,7 +308,8 @@ BEChromiumBookmark* BEBookmarks::FolderItem(
     }
   }
   return [[BEChromiumBookmark alloc] initFolderWithTitle:title
-                                                children:children];
+                                                children:children
+                                                  nodeID:first ? first->id() : 0];
 }
 
 BEChromiumBookmark* BEBookmarks::NodeItem(const bookmarks::BookmarkNode* node) {

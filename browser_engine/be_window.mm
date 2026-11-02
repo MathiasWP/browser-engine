@@ -11,6 +11,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #include "browser_engine/be_autocomplete.h"
+#include "browser_engine/be_bookmark_bar.h"
 #include "browser_engine/be_browser_window.h"
 #import "browser_engine/be_closed.h"
 #import "browser_engine/be_engine.h"
@@ -21,6 +22,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/exit_type_service.h"
 #include "chrome/browser/sessions/session_restore.h"
+#include "chrome/browser/ui/bookmarks/bookmark_bar.h"
+#include "chrome/browser/ui/bookmarks/bookmark_bar_controller.h"
 #include "chrome/browser/tab_list/tab_removed_reason.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
@@ -33,6 +36,10 @@
 #include "net/base/apple/url_conversions.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/base/window_open_disposition_utils.h"
+#include "ui/events/cocoa/cocoa_event_utils.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/mac/coordinate_conversion.h"
 #include "url/gurl.h"
 
 namespace {
@@ -113,6 +120,8 @@ int CommandIdForCommand(BECommand command) {
       return IDC_DUPLICATE_TAB;
     case BECommandTaskManager:
       return IDC_TASK_MANAGER_MAIN_MENU;
+    case BECommandToggleBookmarkBar:
+      return IDC_SHOW_BOOKMARK_BAR;
   }
   return -1;
 }
@@ -126,6 +135,12 @@ int CommandIdForCommand(BECommand command) {
   // The address bar's suggestions: made for the first one, destroyed with the
   // window.
   std::unique_ptr<browser_engine::BEAutocomplete> _autocomplete;
+  // The bookmarks bar's clicks, menus and drops: made for the first, destroyed
+  // with the window.
+  std::unique_ptr<browser_engine::BEBookmarkBar> _bookmarkBar;
+  // showsBookmarkBar as the delegate last heard it.
+  BOOL _showsBookmarkBar;
+  BOOL _bookmarkBarUpdatePending;
   // isPageFullscreen as the delegate last heard it.
   BOOL _pageFullscreen;
   // From Chrome's offer to restore after a crash until the app answers or the
@@ -216,6 +231,33 @@ int CommandIdForCommand(BECommand command) {
   }
   _status = status;
   [_delegate windowDidChangeStatus:self];
+}
+
+- (void)sendBookmarkBarIfChanged {
+  _bookmarkBarUpdatePending = NO;
+  // Nothing after windowWillClose:.
+  if (!_window) {
+    return;
+  }
+  const BOOL shows = [self showsBookmarkBar];
+  if (shows == _showsBookmarkBar) {
+    return;
+  }
+  _showsBookmarkBar = shows;
+  [_delegate windowDidChangeBookmarkBar:self];
+}
+
+// The bar's clicks, menus and drops, made on first use; null once the window
+// closed.
+- (browser_engine::BEBookmarkBar*)bookmarkBar {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser) {
+    return nullptr;
+  }
+  if (!_bookmarkBar) {
+    _bookmarkBar = std::make_unique<browser_engine::BEBookmarkBar>(browser);
+  }
+  return _bookmarkBar.get();
 }
 
 - (void)sendExtensionActionsUpdate {
@@ -327,6 +369,19 @@ int CommandIdForCommand(BECommand command) {
   [self restoreOfferDidChange];
 }
 
+- (void)bookmarkBarStateDidChange {
+  // From inside Chrome's tab-strip and navigation notifications.
+  if (_bookmarkBarUpdatePending) {
+    return;
+  }
+  _bookmarkBarUpdatePending = YES;
+  __weak BEChromiumWindow* weakSelf = self;
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(^{
+        [weakSelf sendBookmarkBarIfChanged];
+      }));
+}
+
 - (void)statusTextDidChange {
   // Chrome sets the bubble from inside its own updates (a link under the
   // pointer, a load's progress), often several times a task: look once, on a
@@ -353,6 +408,7 @@ int CommandIdForCommand(BECommand command) {
   // its profile go, which the controller's providers read. A pending update
   // dies with it.
   _autocomplete.reset();
+  _bookmarkBar.reset();
   // An offer still open goes with the window, as the bubble goes with its
   // browser: unless Chrome is shutting down, the crash counts as acknowledged
   // (ExitTypeService::CheckUserAckedCrash()). UNVERIFIED: that runs inside
@@ -555,6 +611,61 @@ int CommandIdForCommand(BECommand command) {
 
 - (NSString*)statusText {
   return _window ? base::SysUTF16ToNSString(_window->GetStatusText()) : @"";
+}
+
+- (BOOL)showsBookmarkBar {
+  BrowserWindowInterface* browser = [self browser];
+  const BookmarkBarController* controller =
+      browser ? BookmarkBarController::From(browser) : nullptr;
+  return controller && controller->bookmark_bar_state() == BookmarkBar::SHOW;
+}
+
+- (void)openBookmark:(int64_t)identifier event:(NSEvent*)event {
+  // BookmarkBarView::OnButtonPressed(): where the click's modifiers and
+  // button send it.
+  const WindowOpenDisposition disposition =
+      event ? ui::DispositionFromEventFlags(
+                  ui::EventFlagsFromNSEventWithModifiers(event,
+                                                         event.modifierFlags))
+            : WindowOpenDisposition::CURRENT_TAB;
+  // Last: opening can replace this window's page, or close nothing; the app
+  // calls it from a click, never from inside a Chrome notification.
+  if (browser_engine::BEBookmarkBar* bar = [self bookmarkBar]) {
+    bar->Open(identifier, disposition);
+  }
+}
+
+- (void)showMenuForBookmark:(int64_t)identifier
+                    atPoint:(NSPoint)point
+                     inView:(NSView*)view {
+  NSWindow* window = view.window;
+  browser_engine::BEBookmarkBar* bar = [self bookmarkBar];
+  if (!bar || !window) {
+    return;
+  }
+  const NSPoint screen =
+      [window convertPointToScreen:[view convertPoint:point toView:nil]];
+  bar->ShowMenu(identifier, gfx::ScreenPointFromNSPoint(screen));
+}
+
+- (void)moveBookmark:(int64_t)bookmark
+            toFolder:(int64_t)folder
+             atIndex:(NSInteger)index {
+  if (browser_engine::BEBookmarkBar* bar = [self bookmarkBar];
+      bar && index >= 0) {
+    bar->Move(bookmark, folder, static_cast<size_t>(index));
+  }
+}
+
+- (void)addBookmarkForURL:(NSURL*)url
+                    title:(NSString*)title
+                 toFolder:(int64_t)folder
+                  atIndex:(NSInteger)index {
+  if (browser_engine::BEBookmarkBar* bar = [self bookmarkBar];
+      bar && index >= 0) {
+    bar->Add(net::GURLWithNSURL(url), base::SysNSStringToUTF16(title), folder,
+             static_cast<size_t>(index));
+  }
 }
 
 - (void)suggestForText:(NSString*)text
