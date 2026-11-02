@@ -1,0 +1,37 @@
+name: Retry a build that lost its runner
+
+# A release or dev-base build is a chain of 6-hour jobs. When GitHub loses a runner partway ("The
+# hosted runner lost communication with the server"), the run fails and a day's build waits for
+# someone to rerun it. This reruns the failed job, which resumes from the last finished job's
+# saved state, up to twice. A failure of the build itself (an error in a log) isn't retried.
+
+on:
+  workflow_run:
+    workflows: ["Build macOS binaries of Ungoogled Chromium"]
+    types: [completed]
+
+permissions:
+  actions: write
+  checks: read
+
+jobs:
+  retry:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt < 3 }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN: ${{ github.event.workflow_run.id }}
+    steps:
+      - name: Rerun if a runner was lost
+        run: |
+          failed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/jobs" --jq '.jobs[] | select(.conclusion == "failure") | .id')"
+          lost=no
+          for job in $failed; do
+            gh api "repos/$GITHUB_REPOSITORY/check-runs/$job/annotations" --jq '.[].message' |
+              grep -qiE 'lost communication with the server|runner has received a shutdown signal' && lost=yes
+          done
+          if [[ "$lost" == yes ]]; then
+            gh run rerun "$RUN" --failed -R "$GITHUB_REPOSITORY"
+          else
+            echo "Run $RUN failed in the build itself; not retrying."
+          fi

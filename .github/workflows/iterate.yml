@@ -1,10 +1,12 @@
 name: Build the embedding layer on a dev base
 
-# One iteration on //browser_engine: take the finished build state of a dev
-# build (build.yml, flavor dev), put this commit's browser_engine/ and
-# patches/browser_engine/ into it, rebuild what changed and publish the engine
-# (Chromium.app with our framework, BEEngine.h, engine.json) as `engine_x86_64`.
-# See browser_engine/README.md.
+# One iteration on //browser_engine: take the build state of a dev base (a
+# build.yml run with flavor dev, or an iterate run that saved its state), put
+# this commit's browser_engine/ and patches/browser_engine/ into it, rebuild
+# what changed and publish the engine (Chromium.app with our framework,
+# BEEngine.h, engine.json) as `engine_x86_64`. With save_base, also publish the
+# new build state, so later runs start from it and rebuild only what changes
+# after it. See browser_engine/README.md.
 
 defaults:
   run:
@@ -14,9 +16,20 @@ on:
   workflow_dispatch:
     inputs:
       base_run_id:
-        description: "ID of a finished build.yml run with flavor dev (its github_build_artifact_x86_64 is the base)"
-        required: true
+        description: "Run whose github_build_artifact_x86_64 to start from; empty: the one in .github/dev-base.txt"
+        required: false
         type: string
+        default: ""
+      save_base:
+        description: "Also upload this run's build state as a base for later runs (about 15 minutes more)"
+        required: false
+        type: boolean
+        default: false
+      pack_headers:
+        description: "Also upload the headers and compile commands tools/check.sh compiles the layer with on a Mac"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -29,12 +42,10 @@ concurrency:
 
 jobs:
   iterate:
-    name: Build the engine on dev base ${{ inputs.base_run_id }}
+    name: Build the engine
     # As build.yml: GitHub's free Intel runners, Xcode 26.5.
     runs-on: macos-26-intel
     timeout-minutes: 360
-    env:
-      BE_BASE_RUN_ID: ${{ inputs.base_run_id }}
     steps:
       # The same setup as building.yml's resuming build jobs.
       - name: Clone repository
@@ -45,6 +56,10 @@ jobs:
         run: sudo rm -rf $ANDROID_HOME
       - name: Copy GitHub specific scripts to git-root folder
         run: cp -va ./.github/scripts/ ./
+      - name: Choose the dev base
+        run: echo "BE_BASE_RUN_ID=${INPUT_BASE:-$(cat .github/dev-base.txt)}" | tee -a "$GITHUB_ENV"
+        env:
+          INPUT_BASE: ${{ inputs.base_run_id }}
       - name: Prepare Xcode
         run: ./github_prepare_xcode.sh
       - name: Disable spotlight
@@ -71,6 +86,29 @@ jobs:
           name: engine_x86_64
           path: upload_engine/
           # Chromium.app.zip is compressed already.
+          compression-level: 0
+          if-no-files-found: error
+      - name: Pack the headers
+        if: ${{ inputs.pack_headers }}
+        run: python3 ./github_pack_headers.py build/src build/src/out/Default upload_headers
+      - name: Upload the headers
+        if: ${{ inputs.pack_headers }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: headers_x86_64
+          path: upload_headers/
+          compression-level: 0
+          if-no-files-found: error
+      - name: Pack the build state
+        if: ${{ inputs.save_base }}
+        run: ./github_iterate.sh pack x86_64
+      - name: Upload the build state
+        if: ${{ inputs.save_base }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: github_build_artifact_x86_64
+          path: upload_part_build/
+          # Compressed already, and stored so github_fetch_base.sh can stream it.
           compression-level: 0
           if-no-files-found: error
       - name: Upload logs

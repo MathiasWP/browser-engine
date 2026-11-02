@@ -9,10 +9,12 @@
 #                                      check the base matches, run ninja
 #   github_iterate.sh package [arch]   zip Chromium.app, the header and a manifest
 #                                      into upload_engine/
+#   github_iterate.sh pack    [arch]   pack the build state into upload_part_build/,
+#                                      as the build jobs do, for later runs' base
 
 set -o pipefail
 
-_command="${1:?usage: github_iterate.sh build|package [arch]}"
+_command="${1:?usage: github_iterate.sh build|package|pack [arch]}"
 _target_cpu="${2:-x86_64}"
 
 _root_dir="$(dirname "$(greadlink -f "$0")")"
@@ -131,11 +133,22 @@ EOF
   ls -lah "$_upload"
 }
 
+# The build state, as github_prepare_artifacts.sh packs it, for iterate runs to
+# start from (save_base): they then rebuild only what changes after this run.
+pack() {
+  rm -rf "$_root_dir/upload_part_build"
+  mkdir -p "$_root_dir/upload_part_build"
+  cd "$_root_dir"
+  tar -C build -c -f - src | zstd -3 -T0 -o upload_part_build/build_src.tar.zst
+  (cd upload_part_build && sha256sum build_src.tar.zst | tee sums.txt)
+}
+
 case "$_command" in
   build) build ;;
   package) package ;;
+  pack) pack ;;
   *)
-    echo "usage: github_iterate.sh build|package [arch]"
+    echo "usage: github_iterate.sh build|package|pack [arch]"
     exit 2
     ;;
 esac
