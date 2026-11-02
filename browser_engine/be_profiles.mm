@@ -60,6 +60,8 @@ void BEProfiles::Start() {
   if (ProfileAttributesStorage* storage = Storage();
       storage && !observation_.IsObserving()) {
     observation_.Observe(storage);
+    // The app's windows came before the list: it reads it now.
+    NotifyChange();
   }
 }
 
