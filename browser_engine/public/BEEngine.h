@@ -75,6 +75,19 @@ typedef NS_ENUM(NSInteger, BECommand) {
     BECommandTaskManager,
     /// "Always Show Bookmarks Bar" on or off, as ⇧⌘B does in Chrome. (Version 12.)
     BECommandToggleBookmarkBar,
+    // Version 15: Chrome's Tab menu on the Mac, for the selected tab.
+    BECommandNewTabToRight,
+    /// Mutes the tab's site in every tab, or unmutes it.
+    BECommandMuteSite,
+    /// Pins the tab, or unpins it.
+    BECommandPinTab,
+    /// Puts the tab in a new group, or takes it out of its group.
+    BECommandGroupTab,
+    BECommandCloseOtherTabs,
+    BECommandCloseTabsToRight,
+    BECommandMoveTabToNewWindow,
+    /// Chrome's dialog to bookmark every tab in the window into a new folder.
+    BECommandBookmarkAllTabs,
 };
 
 /// How a page's connection reads in the address bar. (Chrome: `security_state::SecurityLevel`)

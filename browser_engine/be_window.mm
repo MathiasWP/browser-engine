@@ -135,6 +135,22 @@ int CommandIdForCommand(BECommand command) {
       return IDC_TASK_MANAGER_MAIN_MENU;
     case BECommandToggleBookmarkBar:
       return IDC_SHOW_BOOKMARK_BAR;
+    case BECommandNewTabToRight:
+      return IDC_NEW_TAB_TO_RIGHT;
+    case BECommandMuteSite:
+      return IDC_WINDOW_MUTE_SITE;
+    case BECommandPinTab:
+      return IDC_WINDOW_PIN_TAB;
+    case BECommandGroupTab:
+      return IDC_WINDOW_GROUP_TAB;
+    case BECommandCloseOtherTabs:
+      return IDC_WINDOW_CLOSE_OTHER_TABS;
+    case BECommandCloseTabsToRight:
+      return IDC_WINDOW_CLOSE_TABS_TO_RIGHT;
+    case BECommandMoveTabToNewWindow:
+      return IDC_MOVE_TAB_TO_NEW_WINDOW;
+    case BECommandBookmarkAllTabs:
+      return IDC_BOOKMARK_ALL_TABS;
   }
   return -1;
 }
