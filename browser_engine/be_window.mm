@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "base/check.h"
@@ -11,6 +12,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/token.h"
 #include "browser_engine/be_autocomplete.h"
 #include "browser_engine/be_bookmark_bar.h"
 #include "browser_engine/be_browser_window.h"
@@ -32,10 +34,17 @@
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
 #include "chrome/browser/ui/tabs/tab_enums.h"
+#include "chrome/browser/ui/tabs/tab_group_model.h"
 #include "chrome/browser/ui/tabs/tab_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/tabs/tab_strip_model_delegate.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/tabs/tab_strip_user_gesture_details.h"
+#include "components/tab_groups/tab_group_color.h"
+#include "components/tab_groups/tab_group_id.h"
+#include "components/tab_groups/tab_group_visual_data.h"
+#include "components/tabs/public/tab_group.h"
+#include "components/tabs/public/tab_interface.h"
 #include "net/base/apple/url_conversions.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
@@ -132,6 +141,35 @@ int CommandIdForCommand(BECommand command) {
 
 }  // namespace
 
+// What the app sees of a group: a copy of it when `tabGroups` was read.
+@interface BEChromiumTabGroup : NSObject <BETabGroup>
+- (instancetype)initWithGroup:(const tab_groups::TabGroupId&)group
+                      visuals:(const tab_groups::TabGroupVisualData&)visuals
+    NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
+@implementation BEChromiumTabGroup
+
+@synthesize identifier = _identifier;
+@synthesize title = _title;
+@synthesize color = _color;
+@synthesize isCollapsed = _isCollapsed;
+
+- (instancetype)initWithGroup:(const tab_groups::TabGroupId&)group
+                      visuals:(const tab_groups::TabGroupVisualData&)visuals {
+  if ((self = [super init])) {
+    _identifier = base::SysUTF8ToNSString(group.ToString());
+    _title = base::SysUTF16ToNSString(visuals.title());
+    // BETabGroupColor follows TabGroupColorId's order.
+    _color = static_cast<BETabGroupColor>(visuals.color());
+    _isCollapsed = visuals.is_collapsed();
+  }
+  return self;
+}
+
+@end
+
 @implementation BEChromiumWindow {
   // Null once the window closed.
   browser_engine::BEBrowserWindow* _window;
@@ -161,6 +199,7 @@ int CommandIdForCommand(BECommand command) {
   // A task to tell the delegate is on its way.
   BOOL _statusUpdatePending;
   BOOL _extensionActionsUpdatePending;
+  BOOL _tabGroupsUpdatePending;
 }
 
 @synthesize delegate = _delegate;
@@ -402,6 +441,40 @@ int CommandIdForCommand(BECommand command) {
   base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(^{
         [weakSelf sendStatusIfChanged];
+      }));
+}
+
+- (void)tabGroupsDidChange {
+  // A new group comes as several changes (made, its first tab, its look).
+  if (_tabGroupsUpdatePending) {
+    return;
+  }
+  _tabGroupsUpdatePending = YES;
+  __weak BEChromiumWindow* weakSelf = self;
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(^{
+        BEChromiumWindow* strongSelf = weakSelf;
+        if (strongSelf) {
+          strongSelf->_tabGroupsUpdatePending = NO;
+          if (strongSelf->_window) {
+            [strongSelf->_delegate windowDidChangeTabGroups:strongSelf];
+          }
+        }
+      }));
+}
+
+- (void)wantsEditorForTabGroup:(const tab_groups::TabGroupId&)group {
+  // Posted after any pending tabGroupsDidChange task, so the app shows the
+  // group before it's asked where it is.
+  NSString* identifier = base::SysUTF8ToNSString(group.ToString());
+  __weak BEChromiumWindow* weakSelf = self;
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(^{
+        BEChromiumWindow* strongSelf = weakSelf;
+        if (strongSelf && strongSelf->_window) {
+          [strongSelf->_delegate window:strongSelf
+                 wantsEditorForTabGroup:identifier];
+        }
       }));
 }
 
@@ -651,6 +724,91 @@ int CommandIdForCommand(BECommand command) {
   if (BrowserWindowInterface* target =
           moved ? moved->GetBrowserWindowInterface() : nullptr) {
     target->GetWindow()->SetBounds(gfx::ScreenRectFromNSRect(frame));
+  }
+}
+
+// The window's group with `identifier`, if it still has it.
+- (std::optional<tab_groups::TabGroupId>)groupWithIdentifier:
+    (NSString*)identifier {
+  TabStripModel* model = [self tabStripModel];
+  const std::optional<base::Token> token =
+      base::Token::FromString(base::SysNSStringToUTF8(identifier));
+  if (!model || !model->group_model() || !token) {
+    return std::nullopt;
+  }
+  const tab_groups::TabGroupId group =
+      tab_groups::TabGroupId::FromRawToken(*token);
+  if (!model->group_model()->ContainsTabGroup(group)) {
+    return std::nullopt;
+  }
+  return group;
+}
+
+- (NSArray<id<BETabGroup>>*)tabGroups {
+  TabStripModel* model = [self tabStripModel];
+  if (!model || !model->group_model()) {
+    return @[];
+  }
+  // A group's tabs are next to each other: each run is one group.
+  NSMutableArray<id<BETabGroup>>* groups = [NSMutableArray array];
+  std::optional<tab_groups::TabGroupId> previous;
+  for (int index = 0; index < model->count(); ++index) {
+    const std::optional<tab_groups::TabGroupId> group =
+        model->GetTabGroupForTab(index);
+    if (group && group != previous) {
+      [groups addObject:[[BEChromiumTabGroup alloc]
+                            initWithGroup:*group
+                                  visuals:*model->group_model()
+                                                ->GetTabGroup(*group)
+                                                ->visual_data()]];
+    }
+    previous = group;
+  }
+  return groups;
+}
+
+- (void)setTabGroup:(NSString*)identifier collapsed:(BOOL)collapsed {
+  TabStripModel* model = [self tabStripModel];
+  const std::optional<tab_groups::TabGroupId> group =
+      [self groupWithIdentifier:identifier];
+  if (!group) {
+    return;
+  }
+  const TabGroup* tabGroup = model->group_model()->GetTabGroup(*group);
+  const tab_groups::TabGroupVisualData visuals = *tabGroup->visual_data();
+  if (visuals.is_collapsed() == static_cast<bool>(collapsed)) {
+    return;
+  }
+  // As a click on Chrome's group header
+  // (BrowserTabStripController::ToggleTabGroupCollapsedState()): the selected
+  // tab leaves a collapsing group for the next tab outside it, or a new tab.
+  tabs::TabInterface* active = model->GetActiveTab();
+  if (collapsed && active && active->GetGroup() == group) {
+    if (const std::optional<int> next =
+            model->GetNextExpandedActiveTab(*group)) {
+      model->ActivateTabAt(*next,
+                           TabStripUserGestureDetails(
+                               TabStripUserGestureDetails::GestureType::kOther));
+    } else {
+      model->delegate()->AddTabAt(GURL(), -1, /*foreground=*/true);
+    }
+  }
+  model->ChangeTabGroupVisuals(
+      *group,
+      tab_groups::TabGroupVisualData(visuals.title(), visuals.color(),
+                                     collapsed),
+      tabGroup->IsCustomized());
+}
+
+- (void)showEditorForTabGroup:(NSString*)identifier
+                       atRect:(NSRect)rect
+                       inView:(NSView*)view {
+  const std::optional<tab_groups::TabGroupId> group =
+      [self groupWithIdentifier:identifier];
+  if (group && view.window) {
+    _window->ShowTabGroupEditor(
+        *group, [view.window convertRectToScreen:[view convertRect:rect
+                                                            toView:nil]]);
   }
 }
 

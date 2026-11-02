@@ -35,6 +35,7 @@
 #include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/interaction/browser_elements.h"
+#include "chrome/browser/ui/tabs/tab_group_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/unload_controller.h"
 #include "chrome/browser/ui/views/autofill/autofill_bubble_handler_impl.h"
@@ -43,8 +44,12 @@
 #include "chrome/browser/ui/views/find_bar_host.h"
 #include "chrome/browser/ui/views/find_bar_owner.h"
 #include "chrome/browser/ui/views/interaction/browser_elements_views_impl.h"
+#include "chrome/browser/ui/views/tabs/groups/tab_group_editor_bubble_view.h"
 #include "chrome/browser/ui/window_metadata/window_metadata_controller.h"
 #include "components/input/native_web_keyboard_event.h"
+#include "components/tab_groups/tab_group_id.h"
+#include "components/tab_groups/tab_group_visual_data.h"
+#include "components/tabs/public/tab_group.h"
 #import "components/remote_cocoa/app_shim/native_widget_ns_window_bridge.h"
 #include "content/public/browser/eye_dropper.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
@@ -52,6 +57,7 @@
 #include "ui/base/accelerators/global_accelerator_listener/global_accelerator_listener.h"
 #include "ui/base/emoji/emoji_panel_helper.h"
 #include "ui/content_accelerators/accelerator_util.h"
+#include "ui/gfx/mac/coordinate_conversion.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/cocoa/native_widget_mac_ns_window_host.h"
 #include "ui/views/controls/native/native_view_host.h"
@@ -312,7 +318,8 @@ BEBrowserWindow::~BEBrowserWindow() {
   // ContentSettingBubbleModelDelegate it uses is there.
   site_settings_.reset();
   // Before the widget, as BEBubbleAnchor asks; an open bookmark bubble closes
-  // with the window.
+  // with the window. The group editor anchors there too.
+  tab_group_editor_.reset();
   bookmark_anchor_.reset();
 
   // Before the FullscreenController goes with the features below.
@@ -687,6 +694,23 @@ views::BubbleAnchor BEBrowserWindow::GetAddressFieldAnchor() {
   return bookmark_anchor_->AnchorAt(rect);
 }
 
+void BEBrowserWindow::ShowTabGroupEditor(const tab_groups::TabGroupId& group,
+                                         const NSRect& screen_rect) {
+  const TabGroupModel* groups = browser_->GetTabStripModel()->group_model();
+  if (!bookmark_anchor_ || !groups || !groups->ContainsTabGroup(group)) {
+    return;
+  }
+  // TabGroupHeader's right-click: the editor needs a view in the window, and
+  // points at `screen_rect` itself.
+  views::View* anchor =
+      bookmark_anchor_
+          ->AnchorAt(bookmark_anchor_->ConvertFromScreen(screen_rect))
+          .GetIfView();
+  tab_group_editor_ = TabGroupEditorBubbleView::Show(
+      browser_, group, anchor, gfx::ScreenRectFromNSRect(screen_rect),
+      /*stop_context_menu_propagation=*/false);
+}
+
 void BEBrowserWindow::ShowBookmarkBubble(const GURL& url,
                                          bool already_bookmarked) {
   content::WebContents* contents =
@@ -1014,6 +1038,22 @@ void BEBrowserWindow::OnTabStripModelChanged(
   if (selection.active_tab_changed() && site_settings_) {
     site_settings_->CloseBubble();
   }
+  // Selecting a tab in a collapsed group expands the group, as Chrome's tab
+  // strip does (TabStrip::SetSelection()).
+  if (selection.active_tab_changed() && selection.new_tab) {
+    const std::optional<tab_groups::TabGroupId> group =
+        selection.new_tab->GetGroup();
+    const TabGroup* tab_group =
+        group ? tab_strip_model->group_model()->GetTabGroup(*group) : nullptr;
+    if (tab_group && tab_group->visual_data()->is_collapsed()) {
+      tab_strip_model->ChangeTabGroupVisuals(
+          *group,
+          tab_groups::TabGroupVisualData(tab_group->visual_data()->title(),
+                                         tab_group->visual_data()->color(),
+                                         /*is_collapsed=*/false),
+          tab_group->IsCustomized());
+    }
+  }
   [objc_window_ tabStripModelChanged:change selection:selection];
 }
 
@@ -1027,6 +1067,23 @@ void BEBrowserWindow::OnTabPinnedStateChanged(tabs::TabInterface* tab,
                                               int index) {
   // After the move to the pinned tabs' end, which came as didMoveTab:.
   [[BEChromiumTab existingTabForTab:tab] scheduleUpdate];
+}
+
+void BEBrowserWindow::TabGroupedStateChanged(
+    TabStripModel* tab_strip_model,
+    std::optional<tab_groups::TabGroupId> old_group,
+    std::optional<tab_groups::TabGroupId> new_group,
+    tabs::TabInterface* tab,
+    int index) {
+  [[BEChromiumTab existingTabForTab:tab] scheduleUpdate];
+}
+
+void BEBrowserWindow::OnTabGroupChanged(const TabGroupChange& change) {
+  if (change.type == TabGroupChange::kEditorOpened) {
+    [objc_window_ wantsEditorForTabGroup:change.group];
+  } else {
+    [objc_window_ tabGroupsDidChange];
+  }
 }
 
 // ui::AcceleratorProvider -----------------------------------------------------

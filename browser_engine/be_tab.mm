@@ -3,6 +3,7 @@
 #import <AppKit/AppKit.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "base/callback_list.h"
@@ -42,6 +43,7 @@
 #include "components/favicon/core/favicon_driver_observer.h"
 #include "components/prefs/pref_service.h"
 #include "components/security_state/core/security_state.h"
+#include "components/tab_groups/tab_group_id.h"
 #include "components/tabs/public/tab_interface.h"
 #include "components/zoom/zoom_controller.h"
 #include "components/zoom/zoom_observer.h"
@@ -491,6 +493,13 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
 - (BOOL)isPinned {
   tabs::TabInterface* tab = [self tab];
   return tab && tab->IsPinned();
+}
+
+- (NSString*)groupIdentifier {
+  tabs::TabInterface* tab = [self tab];
+  const std::optional<tab_groups::TabGroupId> group =
+      tab ? tab->GetGroup() : std::nullopt;
+  return group ? base::SysUTF8ToNSString(group->ToString()) : nil;
 }
 
 - (void)loadURL:(NSURL*)url {

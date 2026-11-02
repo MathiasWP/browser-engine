@@ -12,6 +12,10 @@
 class TabStripModelChange;
 struct TabStripSelectionChange;
 
+namespace tab_groups {
+class TabGroupId;
+}  // namespace tab_groups
+
 namespace browser_engine {
 class BEBrowserWindow;
 }  // namespace browser_engine
@@ -59,6 +63,12 @@ NS_ASSUME_NONNULL_BEGIN
 // The window is going: tells the delegate, then forgets the C++ window. Every
 // method is a no-op afterwards.
 - (void)browserWindowWillClose;
+// A tab group was made, closed, moved or changed how it looks. On a later
+// task, at most once per task, tells the delegate windowDidChangeTabGroups:.
+- (void)tabGroupsDidChange;
+// Chrome wants `group`'s editor shown (OpenTabGroupEditor()). On a later task,
+// after the groups' update, asks the delegate to show it.
+- (void)wantsEditorForTabGroup:(const tab_groups::TabGroupId&)group;
 
 // Called by browser_engine::BEAutocomplete.
 

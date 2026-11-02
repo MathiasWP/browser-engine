@@ -21,7 +21,7 @@ namespace {
 
 // The tab menu's commands, run on the tab strip as BrowserTabStripController
 // runs them (through TabContextMenuController), less what our windows don't
-// have: tab groups, split view, vertical tabs, the reading list and Chrome's
+// have: group focus, split view, vertical tabs, the reading list and Chrome's
 // assistant draw in Chrome's own tab strip and side panel, and Send to Your
 // Devices needs sync.
 class TabMenuDelegate : public ui::SimpleMenuModel::Delegate {
@@ -45,10 +45,6 @@ class TabMenuDelegate : public ui::SimpleMenuModel::Delegate {
   bool IsCommandIdVisible(int command_id) const override {
     switch (static_cast<TabStripModel::ContextMenuCommand>(command_id)) {
       case TabStripModel::CommandToggleGrouped:
-      case TabStripModel::CommandAddToNewGroup:
-      case TabStripModel::CommandAddToExistingGroup:
-      case TabStripModel::CommandAddToNewGroupFromMenuItem:
-      case TabStripModel::CommandRemoveFromGroup:
       case TabStripModel::CommandToggleFocusGroup:
       case TabStripModel::CommandAddToSplit:
       case TabStripModel::CommandSwapWithActiveSplit:

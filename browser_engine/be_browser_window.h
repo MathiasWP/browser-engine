@@ -8,6 +8,8 @@
 #ifndef BROWSER_ENGINE_BE_BROWSER_WINDOW_H_
 #define BROWSER_ENGINE_BE_BROWSER_WINDOW_H_
 
+#import <Foundation/Foundation.h>
+
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -35,6 +37,10 @@ class DevtoolsUIController;
 namespace autofill {
 class AutofillBubbleHandlerImpl;
 }  // namespace autofill
+
+namespace tab_groups {
+class TabGroupId;
+}  // namespace tab_groups
 
 namespace views {
 class NativeViewHost;
@@ -76,6 +82,13 @@ class BEBrowserWindow : public BrowserWindow,
   // autofill's): the app's star at its end, as the delegate gives it, or the
   // window's top right.
   views::BubbleAnchor GetAddressFieldAnchor();
+
+  // Chrome's editor for `group` (TabGroupEditorBubbleView), under
+  // `screen_rect` (AppKit's screen coordinates), where the app shows the
+  // group, as a right-click on the group's header in Chrome's tab strip
+  // opens it.
+  void ShowTabGroupEditor(const tab_groups::TabGroupId& group,
+                          const NSRect& screen_rect);
 
   // From the embedder hook, once `browser` is fully constructed: makes the
   // Objective-C window and hands it to the app, before any tab or Show().
@@ -269,6 +282,12 @@ class BEBrowserWindow : public BrowserWindow,
   void OnTabChangedAt(tabs::TabInterface* tab,
                       TabChangeType change_type) override;
   void OnTabPinnedStateChanged(tabs::TabInterface* tab, int index) override;
+  void TabGroupedStateChanged(TabStripModel* tab_strip_model,
+                              std::optional<tab_groups::TabGroupId> old_group,
+                              std::optional<tab_groups::TabGroupId> new_group,
+                              tabs::TabInterface* tab,
+                              int index) override;
+  void OnTabGroupChanged(const TabGroupChange& change) override;
 
   // ui::AcceleratorProvider:
   bool GetAcceleratorForCommandId(int command_id,
@@ -347,6 +366,9 @@ class BEBrowserWindow : public BrowserWindow,
   // Where Chrome's bookmark bubble points: the app's star. Made in
   // OnBrowserInitialized(), destroyed with `site_settings_`.
   std::unique_ptr<BEBubbleAnchor> bookmark_anchor_;
+  // The open group editor, which closes itself; replaced by the next one, and
+  // destroyed before `bookmark_anchor_`, its anchor.
+  std::unique_ptr<views::Widget> tab_group_editor_;
 
   // Lets DevTools dock in our window (DevToolsWindow::Create() asks for it).
   // It has none of BrowserView's views to lay out: BETab hands docked DevTools

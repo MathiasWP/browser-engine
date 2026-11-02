@@ -15,7 +15,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 14
+#define BE_API_VERSION 15
 
 @protocol BEEngine;
 @protocol BEWindow;
@@ -358,6 +358,34 @@ NS_SWIFT_UI_ACTOR
 @property (nonatomic, readonly) BOOL isBlocked;
 @end
 
+// MARK: Tab groups
+
+/// Chrome's tab group colours, in its order. (Chrome: `tab_groups::TabGroupColorId`. Version 15.)
+typedef NS_ENUM(NSInteger, BETabGroupColor) {
+    BETabGroupColorGrey,
+    BETabGroupColorBlue,
+    BETabGroupColorRed,
+    BETabGroupColorYellow,
+    BETabGroupColorGreen,
+    BETabGroupColorPink,
+    BETabGroupColorPurple,
+    BETabGroupColorCyan,
+    BETabGroupColorOrange,
+};
+
+/// Tabs kept together under a name and a colour, next to each other in the tab strip. (Chrome:
+/// `TabGroup`. Version 15.)
+NS_SWIFT_UI_ACTOR
+@protocol BETabGroup <NSObject>
+/// Stable while the group exists; tabs name their group with it.
+@property (nonatomic, readonly, copy) NSString *identifier;
+/// Empty until the user names it.
+@property (nonatomic, readonly, copy) NSString *title;
+@property (nonatomic, readonly) BETabGroupColor color;
+/// Its tabs hidden behind its name in the tab strip.
+@property (nonatomic, readonly) BOOL isCollapsed;
+@end
+
 // MARK: Windows
 
 /// What a window tells the app. Indexes are positions in the window's tab strip.
@@ -389,6 +417,12 @@ NS_SWIFT_UI_ACTOR
 /// Chrome's bookmark bubble to point at; an empty rect while there's none, and the bubble points
 /// at the window's top right. (Version 13.)
 - (NSRect)bookmarkButtonRectForWindow:(id<BEWindow>)window;
+/// `tabGroups` changed: a group was made or closed, renamed, recoloured, collapsed or expanded.
+/// Which group a tab is in comes with `tabDidUpdate:`. (Version 15.)
+- (void)windowDidChangeTabGroups:(id<BEWindow>)window;
+/// Chrome wants a group's editor shown, as after Add Tab to New Group; the app answers with
+/// `showEditorForTabGroup:atRect:inView:` where the group shows. (Version 15.)
+- (void)window:(id<BEWindow>)window wantsEditorForTabGroup:(NSString *)group;
 @end
 
 NS_SWIFT_UI_ACTOR
@@ -475,6 +509,17 @@ NS_SWIFT_UI_ACTOR
 /// Moves the tab at `index` into `window` at `targetIndex` and selects it there, as dropping a
 /// dragged tab on another window's tab strip does. (Version 14.)
 - (void)moveTabAtIndex:(NSInteger)index toWindow:(id<BEWindow>)window atIndex:(NSInteger)targetIndex;
+/// The window's tab groups, in tab-strip order. Tabs join and leave them through Chrome's tab
+/// menu, and by moving into or out of a group's run of tabs. (Version 15.)
+@property (nonatomic, readonly, copy) NSArray<id<BETabGroup>> *tabGroups;
+/// Collapses or expands a group, as a click on its name in Chrome's tab strip does: collapsing
+/// the selected tab's group selects the next tab outside it (a new tab if there's none).
+/// Selecting a tab in a collapsed group expands it. (Version 15.)
+- (void)setTabGroup:(NSString *)group collapsed:(BOOL)collapsed;
+/// Chrome's editor for a group under `rect` in `view`: its name and colour, New Tab in Group,
+/// Ungroup, Close Group, Move Group to New Window, as a right-click on its name in Chrome's tab
+/// strip shows it. (Chrome: `TabGroupEditorBubbleView`. Version 15.)
+- (void)showEditorForTabGroup:(NSString *)group atRect:(NSRect)rect inView:(NSView *)view;
 
 /// Suggests for what's typed in the address field, as Chrome's omnibox does. No inline
 /// completion right after the user deleted text.
@@ -562,6 +607,8 @@ NS_SWIFT_UI_ACTOR
 /// Whether the tab is pinned: pinned tabs come first in the window. `tabDidUpdate:` says when it
 /// changes (Chrome's tab menu pins and unpins); the move comes as `didMoveTab:`. (Version 14.)
 @property (nonatomic, readonly) BOOL isPinned;
+/// The identifier of the tab's group, or nil; `tabDidUpdate:` says when it changes. (Version 15.)
+@property (nonatomic, readonly, copy, nullable) NSString *groupIdentifier;
 /// Turns the tab's sound off or on, as the tab strip's audio button does.
 - (void)setMuted:(BOOL)muted;
 @end

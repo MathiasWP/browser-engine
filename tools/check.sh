@@ -40,6 +40,18 @@ src="$cache/src"
 rsync -r -c --delete browser_engine/ "$src/browser_engine/"
 (cd "$src/originals" && find . -type f) | while read -r f; do cp "$src/originals/$f" "$src/$f"; done
 for patch in patches/browser_engine/*.patch; do
+  targets=($(sed -n 's|^+++ b/||p' "$patch"))
+  # A touch point newer than the headers may patch files they don't have (a source nothing here
+  # compiles); otherwise its files' originals are kept the first time it applies.
+  missing=0
+  for f in "${targets[@]}"; do [[ -f "$src/$f" ]] || missing=1; done
+  if (( missing )); then
+    echo "skip $(basename "$patch"): its files aren't in run $run's headers" >&2
+    continue
+  fi
+  for f in "${targets[@]}"; do
+    [[ -f "$src/originals/$f" ]] || { mkdir -p "$(dirname "$src/originals/$f")" && cp "$src/$f" "$src/originals/$f"; }
+  done
   patch -p1 -s -N -d "$src" -i "$PWD/$patch" >/dev/null || { echo "error: $(basename "$patch") doesn't apply" >&2; exit 1; }
 done
 
