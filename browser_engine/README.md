@@ -139,6 +139,7 @@ patches), and checked with `git apply --check` the way the build applies them.
 | 21 | `chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc` | `UpdateTargetURL()` and `ContentsMouseEvent()` cast each status bubble to `StatusBubbleViews` and its base view to `ContentsWebView`. For our windows (no BrowserView) the active page's link goes to our one bubble, and leaving the page clears it |
 | 22 | `chrome/browser/ui/extensions/extension_install_ui_desktop.cc` | After an install, the "added" dialog's closing callback points the toolbar at the new extension, dereferencing the BrowserView unchecked (`OnInstallSuccess()`); for our windows it stops there |
 | 23 | `chrome/browser/ui/bookmarks/bookmark_context_menu_controller.cc` | The bookmarks bar's right-click menu without "Open in Split View", as touch point 17 does for the page's menu: the app doesn't show split views yet |
+| 24 | `components/autofill/core/common/autofill_prefs.cc` | Inside the app, Chrome offers to save addresses and payment cards and fills them, as Chrome and Safari do: ungoogled-chromium's inox defaults turn `autofill.profile_enabled` and `autofill.credit_card_enabled` off. The settings stay |
 
 **Webium's other `BrowserWindowFeatures` arms, and why there's no patch for them:**
 - `BrowserElementsWebUiBrowser`: with Webium off, features make `BrowserElementsViewsImpl`;
