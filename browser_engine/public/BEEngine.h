@@ -609,6 +609,15 @@ NS_SWIFT_UI_ACTOR
 @property (nonatomic, readonly) BOOL isPinned;
 /// The identifier of the tab's group, or nil; `tabDidUpdate:` says when it changes. (Version 15.)
 @property (nonatomic, readonly, copy, nullable) NSString *groupIdentifier;
+/// Chrome's distiller judged the page an article its reader view can show; `tabDidUpdate:` says
+/// when that changes. (Version 15.)
+@property (nonatomic, readonly) BOOL isReaderAvailable;
+/// The tab shows a page in Chrome's reader view. `url` stays the page's own address.
+/// (Version 15.)
+@property (nonatomic, readonly) BOOL isShowingReader;
+/// Shows the page in the reader view, if the distiller finds its article, or goes back to the
+/// page. (Chrome: `DistillCurrentPageAndViewIfSuccessful`. Version 15.)
+- (void)setShowsReader:(BOOL)shows;
 /// Turns the tab's sound off or on, as the tab strip's audio button does.
 - (void)setMuted:(BOOL)muted;
 @end

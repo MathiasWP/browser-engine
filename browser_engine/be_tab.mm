@@ -20,6 +20,7 @@
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
 #include "chrome/browser/devtools/devtools_window.h"
+#include "chrome/browser/dom_distiller/tab_utils.h"
 #include "chrome/browser/favicon/favicon_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/chrome_security_state_util.h"
@@ -38,6 +39,9 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
+#include "components/dom_distiller/content/browser/distillable_page_utils.h"
+#include "components/dom_distiller/core/url_constants.h"
+#include "components/dom_distiller/core/url_utils.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "components/favicon/core/favicon_driver.h"
 #include "components/favicon/core/favicon_driver_observer.h"
@@ -48,8 +52,11 @@
 #include "components/zoom/zoom_controller.h"
 #include "components/zoom/zoom_observer.h"
 #include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/common/referrer.h"
 #include "net/base/apple/url_conversions.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
@@ -66,13 +73,15 @@
 
 namespace browser_engine {
 
-// Watches a tab's current WebContents, its favicon, its star, its zoom and its
-// sound, and has the BETab tell its delegate, coalesced to one tabDidUpdate:
-// per task however many events arrive (load progress fires often).
+// Watches a tab's current WebContents, its favicon, its star, its zoom, its
+// sound and whether the distiller finds an article, and has the BETab tell its
+// delegate, coalesced to one tabDidUpdate: per task however many events arrive
+// (load progress fires often).
 class TabObserver : public content::WebContentsObserver,
                     public favicon::FaviconDriverObserver,
                     public BookmarkTabHelperObserver,
-                    public zoom::ZoomObserver {
+                    public zoom::ZoomObserver,
+                    public dom_distiller::DistillabilityObserver {
  public:
   explicit TabObserver(BEChromiumTab* tab) : tab_(tab) {}
   TabObserver(const TabObserver&) = delete;
@@ -84,10 +93,15 @@ class TabObserver : public content::WebContentsObserver,
     bookmark_observation_.Reset();
     zoom_observation_.Reset();
     audible_subscription_ = {};
+    StopObservingDistillability();
+    distillable_ = false;
     Observe(contents);
     if (!contents) {
       return;
     }
+    // What Chrome's reader mode icon followed: the renderer's verdict on the
+    // page (--enable-distillability-service), for every page it loads.
+    dom_distiller::AddObserver(contents, this);
     if (favicon::ContentFaviconDriver* driver =
             favicon::ContentFaviconDriver::FromWebContents(contents)) {
       favicon_observation_.Observe(driver);
@@ -117,6 +131,9 @@ class TabObserver : public content::WebContentsObserver,
     }
   }
 
+  // The distiller's last verdict for the page showing: an article.
+  bool IsDistillable() const { return distillable_; }
+
   void ScheduleUpdate() {
     if (update_pending_) {
       return;
@@ -143,6 +160,12 @@ class TabObserver : public content::WebContentsObserver,
   void LoadProgressChanged(double progress) override { ScheduleUpdate(); }
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override {
+    // A new page has no verdict yet.
+    if (navigation_handle->IsInPrimaryMainFrame() &&
+        navigation_handle->HasCommitted() &&
+        !navigation_handle->IsSameDocument()) {
+      distillable_ = false;
+    }
     ScheduleUpdate();
   }
   void NavigationEntryCommitted(
@@ -164,13 +187,32 @@ class TabObserver : public content::WebContentsObserver,
   }
   void DidUpdateAudioMutingState(bool muted) override { ScheduleUpdate(); }
   void WebContentsDestroyed() override {
-    // The favicon driver, the bookmark helper, the zoom controller and the
-    // audible helper are WebContents user data; stop before they go.
+    // The favicon driver, the bookmark helper, the zoom controller, the
+    // audible helper and the distillability driver are WebContents user data;
+    // stop before they go.
     favicon_observation_.Reset();
     bookmark_observation_.Reset();
     zoom_observation_.Reset();
     audible_subscription_ = {};
+    StopObservingDistillability();
     [tab_ contentsDestroyed];
+  }
+
+  // dom_distiller::DistillabilityObserver:
+  void OnResult(const dom_distiller::DistillabilityResult& result) override {
+    const bool distillable =
+        result.is_distillable &&
+        result.url == web_contents()->GetLastCommittedURL();
+    if (distillable != distillable_) {
+      distillable_ = distillable;
+      ScheduleUpdate();
+    }
+  }
+
+  void StopObservingDistillability() {
+    if (web_contents()) {
+      dom_distiller::RemoveObserver(web_contents(), this);
+    }
   }
 
   // favicon::FaviconDriverObserver:
@@ -202,6 +244,7 @@ class TabObserver : public content::WebContentsObserver,
 
   __weak BEChromiumTab* tab_;
   bool update_pending_ = false;
+  bool distillable_ = false;
   base::ScopedObservation<favicon::FaviconDriver,
                           favicon::FaviconDriverObserver>
       favicon_observation_{this};
@@ -338,7 +381,12 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   if (!contents) {
     return nil;
   }
-  const GURL& url = contents->GetVisibleURL();
+  // The reader view's address is chrome-distiller://…?url=<the page>; Chrome's
+  // omnibox shows the page.
+  GURL url = contents->GetVisibleURL();
+  if (url.SchemeIs(dom_distiller::kDomDistillerScheme)) {
+    url = dom_distiller::url_utils::GetOriginalUrlFromDistillerUrl(url);
+  }
   return url.is_valid() ? net::NSURLWithGURL(url) : nil;
 }
 
@@ -493,6 +541,40 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
 - (BOOL)isPinned {
   tabs::TabInterface* tab = [self tab];
   return tab && tab->IsPinned();
+}
+
+- (BOOL)isShowingReader {
+  content::WebContents* contents = [self contents];
+  return contents && contents->GetLastCommittedURL().SchemeIs(
+                         dom_distiller::kDomDistillerScheme);
+}
+
+- (BOOL)isReaderAvailable {
+  return _observer->IsDistillable() && ![self isShowingReader];
+}
+
+- (void)setShowsReader:(BOOL)shows {
+  content::WebContents* contents = [self contents];
+  if (!contents || shows == [self isShowingReader]) {
+    return;
+  }
+  if (shows) {
+    // Navigates to the viewer once the article is out; nothing if none is.
+    DistillCurrentPageAndViewIfSuccessful(contents, base::DoNothing());
+    return;
+  }
+  // Back to the page, where it was, as leaving Safari's Reader does.
+  content::NavigationController& controller = contents->GetController();
+  const GURL page = dom_distiller::url_utils::GetOriginalUrlFromDistillerUrl(
+      contents->GetLastCommittedURL());
+  content::NavigationEntry* previous =
+      controller.GetEntryAtOffset(-1);
+  if (previous && previous->GetURL() == page) {
+    controller.GoBack();
+  } else {
+    controller.LoadURL(page, content::Referrer(), ui::PAGE_TRANSITION_LINK,
+                       std::string());
+  }
 }
 
 - (NSString*)groupIdentifier {
