@@ -10,7 +10,7 @@ src, out, upload = sys.argv[1:4]
 os.makedirs(upload, exist_ok=True)
 root = os.path.dirname(os.path.dirname(src))  # the checkout holding build/src
 patched = set()
-patches = os.path.join(root, "patches", "browser_engine")
+patches = os.path.abspath(os.path.join(root, "patches", "browser_engine"))
 for name in sorted(os.listdir(patches)):
     with open(os.path.join(patches, name)) as patch:
         patched.update(m.group(1) for m in re.finditer(r"^\+\+\+ b/(\S+)", patch.read(), re.M))
@@ -43,7 +43,7 @@ files += [os.path.join(llvm_bin, n) for n in os.listdir(os.path.join(src, llvm_b
 llvm_lib = "third_party/llvm-build/Release+Asserts/lib"
 files += [os.path.join(llvm_lib, n) for n in os.listdir(os.path.join(src, llvm_lib)) if n.endswith(".dylib")]
 # The touch points' files without our patches, for check.sh to patch with the ones being checked.
-originals = os.path.join(src, "originals")
+originals = os.path.abspath(os.path.join(src, "originals"))
 shutil.rmtree(originals, ignore_errors=True)
 for path in patched:
     if os.path.exists(os.path.join(src, path)):
