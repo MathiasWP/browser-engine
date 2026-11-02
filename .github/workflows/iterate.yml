@@ -64,18 +64,16 @@ jobs:
         run: ./github_prepare_xcode.sh
       - name: Disable spotlight
         run: sudo mdutil -a -i off
+      - name: Download the dev base
+        uses: actions/download-artifact@v8
+        with:
+          name: github_build_artifact_x86_64
+          run-id: ${{ env.BE_BASE_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Setup Environment and Toolchain
         run: ./github_setup_env_toolchain.sh x86_64 | tee -a github_actions_setup_env_toolchain.log
-      - name: Fetch and unpack the dev base
-        run: ./github_fetch_base.sh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # TEMPORARY (devloop experiment): what the base holds.
-      - name: Measure the base
-        run: |
-          cd build/src && time du -d1 -k . | sort -n | tail -20
-          cd third_party && du -d1 -k . | sort -n | tail -20
-          cd ../out/Default && du -d1 -k . | sort -n | tail -15
+      - name: Unpack archive of build
+        run: ./github_unpack_archive.sh
       - name: Apply the embedding layer and build
         run: ./github_iterate.sh build x86_64 2>&1 | tee -a github_actions_iterate_x86_64.log
       - name: Package the engine

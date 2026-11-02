@@ -75,9 +75,6 @@ build() {
   #    would only "regenerate" and stop, and count one edge.
   ninja -C "$_out_dir" build.ninja
 
-  # TEMPORARY (devloop experiment): why ninja would rerun what it reruns.
-  ninja -C "$_out_dir" -n -d explain chrome 2>&1 | grep '^ninja explain' | grep -v ' is dirty$' | awk '{ if (++seen[$3 $4 $5] <= 2) print }' | head -60 || true
-
   # 4. Fail early if the base doesn't match.
   local _targets _edges
   _targets="$(cat "$_out_dir/build_targets.txt" 2>/dev/null || echo chrome)"

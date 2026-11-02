@@ -1,0 +1,73 @@
+name: Dev session
+
+# For a stretch of engine work: one runner unpacks a dev base once, then builds every push to the
+# branch this runs on, so after the first build (about half an hour) each change takes minutes.
+# Engines go to the release "dev-session" as engine-<sha>.zip (Chromium.app.zip, BEEngine.h,
+# engine.json; scripts/fetch-engine.sh in the app takes them), or engine-<sha>.log when a build
+# fails. The session ends after idle_minutes without a push, or near the 6-hour job limit.
+
+defaults:
+  run:
+    shell: bash
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_run_id:
+        description: "Run whose github_build_artifact_x86_64 to start from; empty: the one in .github/dev-base.txt"
+        required: false
+        type: string
+        default: ""
+      idle_minutes:
+        description: "End the session after this long without a push"
+        required: false
+        type: string
+        default: "45"
+
+permissions:
+  # Publishing engines as release assets.
+  contents: write
+  actions: read
+
+concurrency:
+  group: devsession-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  session:
+    name: Build each push
+    runs-on: macos-26-intel
+    timeout-minutes: 360
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Cleanup Android Related Stuff
+        run: sudo rm -rf $ANDROID_HOME
+      - name: Copy GitHub specific scripts to git-root folder
+        run: cp -va ./.github/scripts/ ./
+      - name: Choose the dev base
+        run: echo "BE_BASE_RUN_ID=${INPUT_BASE:-$(cat .github/dev-base.txt)}" | tee -a "$GITHUB_ENV"
+        env:
+          INPUT_BASE: ${{ inputs.base_run_id }}
+      - name: Prepare Xcode
+        run: ./github_prepare_xcode.sh
+      - name: Disable spotlight
+        run: sudo mdutil -a -i off
+      - name: Download the dev base
+        uses: actions/download-artifact@v8
+        with:
+          name: github_build_artifact_x86_64
+          run-id: ${{ env.BE_BASE_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Environment and Toolchain
+        run: ./github_setup_env_toolchain.sh x86_64 | tee -a github_actions_setup_env_toolchain.log
+      - name: Unpack archive of build
+        run: ./github_unpack_archive.sh
+      - name: Build each push
+        run: ./github_devsession.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BE_BRANCH: ${{ github.ref_name }}
+          BE_IDLE_MINUTES: ${{ inputs.idle_minutes }}
