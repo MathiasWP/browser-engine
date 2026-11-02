@@ -86,7 +86,7 @@ class TabObserver : public content::WebContentsObserver,
   explicit TabObserver(BEChromiumTab* tab) : tab_(tab) {}
   TabObserver(const TabObserver&) = delete;
   TabObserver& operator=(const TabObserver&) = delete;
-  ~TabObserver() override = default;
+  ~TabObserver() override { StopObservingDistillability(); }
 
   void StartObserving(content::WebContents* contents) {
     favicon_observation_.Reset();
