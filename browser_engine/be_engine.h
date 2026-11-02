@@ -21,6 +21,10 @@ id<BEEngineDelegate> _Nullable GetEngineDelegate();
 // The engine the app holds, for the delegate's calls.
 id<BEEngine> _Nonnull GetEngine();
 
+// One of our windows became the active one, and Chrome made its profile the
+// last used: the menus' lists follow it, as Chrome's do.
+void OnWindowActivated();
+
 }  // namespace browser_engine
 
 #endif  // BROWSER_ENGINE_BE_ENGINE_H_

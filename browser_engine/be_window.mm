@@ -760,6 +760,16 @@ int CommandIdForCommand(BECommand command) {
   return group;
 }
 
+- (NSString*)profileIdentifier {
+  BrowserWindowInterface* browser = [self browser];
+  return browser ? base::SysUTF8ToNSString(browser->GetProfile()
+                                               ->GetOriginalProfile()
+                                               ->GetPath()
+                                               .BaseName()
+                                               .value())
+                 : @"";
+}
+
 - (NSArray<id<BETabGroup>>*)tabGroups {
   TabStripModel* model = [self tabStripModel];
   if (!model || !model->group_model()) {

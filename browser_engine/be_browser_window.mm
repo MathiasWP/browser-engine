@@ -11,6 +11,7 @@
 #include "base/notimplemented.h"
 #include "browser_engine/be_browser_window_parts.h"
 #import "browser_engine/be_bubble_anchor.h"
+#import "browser_engine/be_engine.h"
 #import "browser_engine/be_extensions.h"
 #import "browser_engine/be_site_settings.h"
 #import "browser_engine/be_tab.h"
@@ -955,6 +956,7 @@ void BEBrowserWindow::Show() {
   // AppKit activates the window on the next run loop turn, or
   // GetLastActive() would be wrong for whoever asks next.
   BrowserActiveStateManager::From(browser_)->DidBecomeActive();
+  OnWindowActivated();
 
   // DevToolsWindow::Show() calls this right after docking DevTools, and
   // nothing else tells our window (devtools_window.cc; later changes come
@@ -1188,6 +1190,7 @@ void BEBrowserWindow::PaintAsActiveChanged() {
   // commands, extensions and new tabs go to.
   if (widget_->ShouldPaintAsActive()) {
     BrowserActiveStateManager::From(browser_)->DidBecomeActive();
+    OnWindowActivated();
   } else {
     BrowserActiveStateManager::From(browser_)->DidBecomeInactive();
   }

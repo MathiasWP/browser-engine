@@ -24,6 +24,7 @@
 #include "browser_engine/be_downloads.h"
 #import "browser_engine/be_most_visited.h"
 #import "browser_engine/be_preferences.h"
+#import "browser_engine/be_profiles.h"
 #import "browser_engine/be_visited.h"
 #include "browser_engine/browser_engine_hooks.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -32,6 +33,7 @@
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
@@ -39,6 +41,7 @@
 #include "chrome/browser/ui/browser_window/public/profile_browser_collection.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
+#include "chrome/browser/ui/profiles/profile_picker.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/chrome_switches.h"
@@ -64,6 +67,8 @@ extern "C" int ChromeMain(int argc, const char** argv);
 @property(nonatomic, readonly, nullable) id<BEEngineDelegate> delegate;
 // From the hooks: the main loop runs and startup has made its windows.
 - (void)browserDidStart;
+// From our windows: one became active (OnWindowActivated()).
+- (void)windowDidBecomeActive;
 @end
 
 // BrowserCrApplication's accessibility support, for the app's NSApp
@@ -342,6 +347,10 @@ id<BEEngine> GetEngine() {
   return Engine();
 }
 
+void OnWindowActivated() {
+  [Engine() windowDidBecomeActive];
+}
+
 }  // namespace browser_engine
 
 @implementation BEChromiumEngine {
@@ -355,6 +364,7 @@ id<BEEngine> GetEngine() {
   std::unique_ptr<browser_engine::BERecentlyVisited> _recentlyVisited;
   std::unique_ptr<browser_engine::BEBookmarks> _bookmarks;
   std::unique_ptr<browser_engine::BEMostVisited> _mostVisited;
+  std::unique_ptr<browser_engine::BEProfiles> _profiles;
 }
 
 - (instancetype)init {
@@ -441,6 +451,28 @@ id<BEEngine> GetEngine() {
   browser_engine::BEMostVisited* mostVisited =
       browser_engine::Watch(_mostVisited, [self everydayProfile]);
   return mostVisited ? mostVisited->items() : @[];
+}
+
+- (NSArray<id<BEProfile>>*)profiles {
+  return _profiles ? _profiles->items() : @[];
+}
+
+- (void)openWindowForProfile:(NSString*)identifier {
+  const base::FilePath path =
+      _profiles ? _profiles->PathForIdentifier(identifier) : base::FilePath();
+  if (!path.empty()) {
+    // As choosing a profile in Chrome's Profiles menu: a new window for it.
+    profiles::SwitchToProfile(path, /*always_create=*/true);
+  }
+}
+
+- (void)showProfilePickerToAdd:(BOOL)add {
+  if (!_started) {
+    return;
+  }
+  ProfilePicker::Show(ProfilePicker::Params::FromEntryPoint(
+      add ? ProfilePicker::EntryPoint::kProfileMenuAddNewProfile
+          : ProfilePicker::EntryPoint::kProfileMenuManageProfiles));
 }
 
 - (void)setMostVisitedURL:(NSURL*)url removed:(BOOL)removed {
@@ -593,11 +625,31 @@ id<BEEngine> GetEngine() {
   browser_engine::Watch(_bookmarks, profile);
   // As the new tab page's tiles, ready when the app first shows one.
   browser_engine::Watch(_mostVisited, profile);
+  _profiles = std::make_unique<browser_engine::BEProfiles>();
+  _profiles->Start();
   if (_pendingURLs.count) {
     NSArray<NSURL*>* urls = [_pendingURLs copy];
     [_pendingURLs removeAllObjects];
     [self openURLs:urls];
   }
+}
+
+- (void)windowDidBecomeActive {
+  if (!_started) {
+    return;
+  }
+  // On a later task, after Chrome made the window's profile the last used
+  // (ProfileManager's BrowserCollectionObserver): the lists of another
+  // profile's window are its own, and each tells the app if it changed.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce([] {
+        BEChromiumEngine* engine = browser_engine::Engine();
+        Profile* profile = [engine everydayProfile];
+        browser_engine::Watch(engine->_recentlyClosed, profile);
+        browser_engine::Watch(engine->_recentlyVisited, profile);
+        browser_engine::Watch(engine->_bookmarks, profile);
+        browser_engine::Watch(engine->_mostVisited, profile);
+      }));
 }
 
 @end

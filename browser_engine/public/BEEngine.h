@@ -98,6 +98,19 @@ typedef NS_ENUM(NSInteger, BESecurity) {
     BESecurityDangerous,
 };
 
+// MARK: Profiles
+
+/// One of Chrome's profiles: its own history, bookmarks, passwords, cookies, extensions and
+/// settings, in windows of its own. (Chrome: `ProfileAttributesEntry`. Version 15.)
+NS_SWIFT_UI_ACTOR
+@protocol BEProfile <NSObject>
+/// Stable: the profile's folder ("Default", "Profile 1").
+@property (nonatomic, readonly, copy) NSString *identifier;
+@property (nonatomic, readonly, copy) NSString *name;
+/// As Chrome's profile menu shows it.
+@property (nonatomic, readonly, nullable) NSImage *avatar;
+@end
+
 // MARK: Engine
 
 /// What the engine tells the app.
@@ -114,6 +127,8 @@ NS_SWIFT_UI_ACTOR
 - (void)engineDidChangeBookmarks:(id<BEEngine>)engine;
 /// `mostVisited` changed: history moved on, or a site was removed. (Version 14.)
 - (void)engineDidChangeMostVisited:(id<BEEngine>)engine;
+/// `profiles` changed: one was added, removed, renamed or given another avatar. (Version 15.)
+- (void)engineDidChangeProfiles:(id<BEEngine>)engine;
 @end
 
 NS_SWIFT_UI_ACTOR
@@ -123,6 +138,16 @@ NS_SWIFT_UI_ACTOR
 @property (nonatomic, readonly, copy) NSString *version;
 /// Where the everyday profile keeps its data.
 @property (nonatomic, readonly, copy) NSURL *dataFolder;
+/// Chrome's profiles, in its order. The everyday profile, whose lists and preferences the
+/// properties here are, is the active window's, as in Chrome; the lists' change calls say when it
+/// changes. (Version 15.)
+@property (nonatomic, readonly, copy) NSArray<id<BEProfile>> *profiles;
+/// Opens a new window for a profile; it arrives through `engineDidCreateWindow:`. (Chrome:
+/// `profiles::SwitchToProfile`. Version 15.)
+- (void)openWindowForProfile:(NSString *)identifier;
+/// Chrome's profile picker, to add a profile or to manage them (rename, delete, open). (Chrome:
+/// `ProfilePicker`. Version 15.)
+- (void)showProfilePickerToAdd:(BOOL)add;
 /// Tabs and windows closed recently, newest first, as Chrome's History menu lists them (the
 /// everyday profile's). Read it when the menu opens. (Version 8.)
 @property (nonatomic, readonly, copy) NSArray<id<BEClosedItem>> *recentlyClosed;
@@ -447,6 +472,9 @@ NS_SWIFT_UI_ACTOR
 /// The app's root view, filling the window. Pages go inside it, wherever the app puts them.
 - (void)setContentView:(NSView *)view;
 @property (nonatomic, readonly) BOOL isPrivate;
+/// The window's profile (`BEProfile.identifier`); a private window's is the profile it's private
+/// from. (Version 15.)
+@property (nonatomic, readonly, copy) NSString *profileIdentifier;
 @property (nonatomic, readonly, copy) NSArray<id<BETab>> *tabs;
 /// -1 while the window has no tabs.
 @property (nonatomic, readonly) NSInteger activeIndex;
