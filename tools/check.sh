@@ -76,7 +76,7 @@ for path in files:
         if arg in ("-o", "-MF"):
             skip = True
             continue
-        if arg == "-MMD":
+        if arg in ("-MMD", "-c"):
             continue
         if arg == "-isysroot":
             out += [arg, sdk]

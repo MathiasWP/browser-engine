@@ -42,6 +42,12 @@ files += [os.path.join(llvm_bin, n) for n in os.listdir(os.path.join(src, llvm_b
 # Plugins the compile commands may load.
 llvm_lib = "third_party/llvm-build/Release+Asserts/lib"
 files += [os.path.join(llvm_lib, n) for n in os.listdir(os.path.join(src, llvm_lib)) if n.endswith(".dylib")]
+# Files the compile commands name besides headers (the warning suppression list, and the like).
+for entry in wanted:
+    for path in re.findall(r"\.\./\.\./[^\s,=\"]+", entry["command"]):
+        rel = os.path.normpath(os.path.join(os.path.relpath(out, src), path))
+        if os.path.isfile(os.path.join(src, rel)):
+            files.append(rel)
 # The touch points' files without our patches, for check.sh to patch with the ones being checked.
 originals = os.path.abspath(os.path.join(src, "originals"))
 shutil.rmtree(originals, ignore_errors=True)
