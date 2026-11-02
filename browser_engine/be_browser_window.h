@@ -22,6 +22,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/accelerators/accelerator_manager.h"
+#include "ui/views/bubble/bubble_anchor.h"
 #include "ui/views/controls/webview/unhandled_keyboard_event_handler.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
@@ -31,6 +32,10 @@
 
 class DevtoolsUIController;
 
+namespace autofill {
+class AutofillBubbleHandlerImpl;
+}  // namespace autofill
+
 namespace views {
 class NativeViewHost;
 class NativeWidget;
@@ -38,15 +43,15 @@ class NativeWidget;
 
 namespace browser_engine {
 
-class BEAutofillBubbleHandler;
+class BEBubbleAnchor;
 class BEExclusiveAccessContext;
 class BEExtensions;
 class BEFindBarOwner;
 class BELocationBar;
 class BEModalDialogHost;
-class BEBubbleAnchor;
 class BESiteSettings;
 class BEStatusBubble;
+class BEToolbarButtons;
 
 class BEBrowserWindow : public BrowserWindow,
                         public BookmarkBarController::Delegate,
@@ -66,6 +71,11 @@ class BEBrowserWindow : public BrowserWindow,
 
   BrowserWindowInterface* browser() const { return browser_; }
   views::Widget* widget() const { return widget_.get(); }
+
+  // Where Chrome's bubbles for the address field point (the bookmark bubble,
+  // autofill's): the app's star at its end, as the delegate gives it, or the
+  // window's top right.
+  views::BubbleAnchor GetAddressFieldAnchor();
 
   // From the embedder hook, once `browser` is fully constructed: makes the
   // Objective-C window and hands it to the app, before any tab or Show().
@@ -258,6 +268,7 @@ class BEBrowserWindow : public BrowserWindow,
       const TabStripSelectionChange& selection) override;
   void OnTabChangedAt(tabs::TabInterface* tab,
                       TabChangeType change_type) override;
+  void OnTabPinnedStateChanged(tabs::TabInterface* tab, int index) override;
 
   // ui::AcceleratorProvider:
   bool GetAcceleratorForCommandId(int command_id,
@@ -321,7 +332,10 @@ class BEBrowserWindow : public BrowserWindow,
   std::unique_ptr<BEModalDialogHost> modal_dialog_host_;
   std::unique_ptr<BEExclusiveAccessContext> exclusive_access_context_;
   std::unique_ptr<BEFindBarOwner> find_bar_owner_;
-  std::unique_ptr<BEAutofillBubbleHandler> autofill_bubble_handler_;
+  // Where Chrome's autofill bubbles point; before the handler, which holds it.
+  std::unique_ptr<BEToolbarButtons> toolbar_buttons_;
+  // Chrome's own (BrowserView makes one too), registered on the browser.
+  std::unique_ptr<autofill::AutofillBubbleHandlerImpl> autofill_bubble_handler_;
   // For the window's life: Chrome may ask for it while the tabs close.
   std::unique_ptr<BEStatusBubble> status_bubble_;
 

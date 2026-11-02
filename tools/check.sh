@@ -61,8 +61,13 @@ src, sdk, files = sys.argv[1], sys.argv[2], sys.argv[3:]
 commands = json.load(open(os.path.join(os.path.dirname(src), "compile_commands.json")))
 by_file = {os.path.normpath(os.path.join("out/Default", c["file"])): c for c in commands}
 failed = 0
+# A layer source the headers' run didn't have yet compiles as its neighbours do.
+layer = next((c for f, c in by_file.items() if f.startswith("browser_engine/") and f.endswith(".mm")), None)
 for path in files:
     entry = by_file.get(os.path.normpath(path))
+    if not entry and layer and path.startswith("browser_engine/") and path.endswith((".mm", ".cc")):
+        old = os.path.normpath(os.path.join("out/Default", layer["file"]))
+        entry = {"command": layer["command"].replace("../../" + old, "../../" + path), "file": "../../" + path}
     if not entry:
         print(f"skip {path}: no compile command (a header, or a file the engine doesn't build)")
         continue

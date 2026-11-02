@@ -15,7 +15,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Raised when either side changes this file in a way the other must follow.
-#define BE_API_VERSION 13
+#define BE_API_VERSION 14
 
 @protocol BEEngine;
 @protocol BEWindow;
@@ -99,6 +99,8 @@ NS_SWIFT_UI_ACTOR
 /// The everyday profile's bookmarks changed: one was added, removed, moved, renamed, or its icon
 /// arrived. Read `bookmarkBar` again. At most once per task. (Version 12.)
 - (void)engineDidChangeBookmarks:(id<BEEngine>)engine;
+/// `mostVisited` changed: history moved on, or a site was removed. (Version 14.)
+- (void)engineDidChangeMostVisited:(id<BEEngine>)engine;
 @end
 
 NS_SWIFT_UI_ACTOR
@@ -126,6 +128,14 @@ NS_SWIFT_UI_ACTOR
 /// The folder at the bar's end, as Chrome's bar has it: "All Bookmarks", Other Bookmarks'
 /// contents; nil while that's empty. (Version 12.)
 @property (nonatomic, readonly, nullable) id<BEBookmark> otherBookmarks;
+/// The everyday profile's most visited sites, as the tiles of Chrome's new tab page list them
+/// (up to 8, best first), each with its icon from the local favicon database once loaded; empty
+/// until Chrome has read them. `engineDidChangeMostVisited:` says when they change. (Chrome:
+/// `ntp_tiles::MostVisitedSites`. Version 14.)
+@property (nonatomic, readonly, copy) NSArray<id<BEVisitedPage>> *mostVisited;
+/// Takes a site off `mostVisited`, as removing a tile from Chrome's new tab page does (its
+/// blocklist), or puts it back with `removed` NO. (Version 14.)
+- (void)setMostVisitedURL:(NSURL *)url removed:(BOOL)removed;
 /// The everyday profile's preferences; nil until Chromium has started.
 @property (nonatomic, readonly, nullable) id<BEPreferences> preferences;
 
@@ -450,6 +460,22 @@ NS_SWIFT_UI_ACTOR
 /// (Version 12.)
 - (void)addBookmarkForURL:(NSURL *)url title:(NSString *)title toFolder:(int64_t)folder atIndex:(NSInteger)index;
 
+/// Shows Chrome's menu for the tab at `index` at `point` in `view` (New Tab to the Right, Reload,
+/// Duplicate, Pin, Mute Site, Move to Another Window, Close Other Tabs, Close Tabs to the Right…),
+/// and does what's chosen; with the tab among several selected ones, for all of them. (Chrome:
+/// `TabMenuModel`. Version 14.)
+- (void)showMenuForTabAtIndex:(NSInteger)index atPoint:(NSPoint)point inView:(NSView *)view;
+/// Chrome's back or forward menu, at `point` in `view`: the pages before or after this one, and
+/// Show Full History. (Chrome: `BackForwardMenuModel`. Version 14.)
+- (void)showHistoryMenuForward:(BOOL)forward atPoint:(NSPoint)point inView:(NSView *)view;
+/// Moves the tab at `index` into a new window at `frame` (screen coordinates, from the bottom
+/// left), as dragging a tab out of Chrome's tab strip does; the window arrives through
+/// `engineDidCreateWindow:`. (Version 14.)
+- (void)moveTabAtIndex:(NSInteger)index toNewWindowWithFrame:(NSRect)frame;
+/// Moves the tab at `index` into `window` at `targetIndex` and selects it there, as dropping a
+/// dragged tab on another window's tab strip does. (Version 14.)
+- (void)moveTabAtIndex:(NSInteger)index toWindow:(id<BEWindow>)window atIndex:(NSInteger)targetIndex;
+
 /// Suggests for what's typed in the address field, as Chrome's omnibox does. No inline
 /// completion right after the user deleted text.
 - (void)suggestForText:(NSString *)text allowsInlineCompletion:(BOOL)allowsInlineCompletion;
@@ -533,6 +559,9 @@ NS_SWIFT_UI_ACTOR
 @property (nonatomic, readonly) BOOL isAudible;
 /// Whether the tab's sound is off; `tabDidUpdate:` says when that changes.
 @property (nonatomic, readonly) BOOL isMuted;
+/// Whether the tab is pinned: pinned tabs come first in the window. `tabDidUpdate:` says when it
+/// changes (Chrome's tab menu pins and unpins); the move comes as `didMoveTab:`. (Version 14.)
+@property (nonatomic, readonly) BOOL isPinned;
 /// Turns the tab's sound off or on, as the tab strip's audio button does.
 - (void)setMuted:(BOOL)muted;
 @end

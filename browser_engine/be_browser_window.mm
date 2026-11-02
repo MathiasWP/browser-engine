@@ -37,6 +37,7 @@
 #include "chrome/browser/ui/interaction/browser_elements.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/unload_controller.h"
+#include "chrome/browser/ui/views/autofill/autofill_bubble_handler_impl.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bubble_view.h"
 #include "chrome/browser/ui/views/download/download_in_progress_dialog_view.h"
 #include "chrome/browser/ui/views/find_bar_host.h"
@@ -274,8 +275,11 @@ BEBrowserWindow::BEBrowserWindow(BrowserWindowInterface* browser)
   exclusive_access_context_ = std::make_unique<BEExclusiveAccessContext>(this);
   find_bar_owner_ = std::make_unique<BEFindBarOwner>(
       this, browser_->GetUnownedUserDataHost());
-  autofill_bubble_handler_ =
-      std::make_unique<BEAutofillBubbleHandler>(browser_.get());
+  // Chrome's autofill bubbles, as BrowserView makes them, anchored to the
+  // address field (BEToolbarButtons).
+  toolbar_buttons_ = std::make_unique<BEToolbarButtons>(this);
+  autofill_bubble_handler_ = std::make_unique<autofill::AutofillBubbleHandlerImpl>(
+      browser_.get(), toolbar_buttons_.get());
   status_bubble_ = std::make_unique<BEStatusBubble>(this);
   // DevTools docks only where the browser has a DevtoolsUIController
   // (DevToolsWindow::Create()); BrowserWindowFeatures makes one for
@@ -573,7 +577,6 @@ void BEBrowserWindow::SetContentsSize(const gfx::Size& size) {
 }
 
 autofill::AutofillBubbleHandler* BEBrowserWindow::GetAutofillBubbleHandler() {
-  // Shows no bubbles (be_browser_window_parts.h); the app's come later.
   return autofill_bubble_handler_.get();
 }
 
@@ -669,25 +672,33 @@ void BEBrowserWindow::ShowIntentPickerBubble(
   NOTIMPLEMENTED_LOG_ONCE();  // "Open in app" picker; not for milestone 1.
 }
 
-void BEBrowserWindow::ShowBookmarkBubble(const GURL& url,
-                                         bool already_bookmarked) {
-  content::WebContents* contents =
-      browser_->GetTabStripModel()->GetActiveWebContents();
-  if (!contents || !bookmark_anchor_) {
-    return;
+views::BubbleAnchor BEBrowserWindow::GetAddressFieldAnchor() {
+  if (!bookmark_anchor_) {
+    return views::BubbleAnchor();
   }
-  // ToolbarView::ShowBookmarkBubble(), pointing at the app's star, or at the
-  // window's top right without one (as extension popups do).
+  // As extension popups fall back, without a star: the window's top right.
   const NSRect star = [objc_window_ bookmarkButtonRect];
-  const gfx::Rect anchor_rect =
+  const gfx::Rect rect =
       NSIsEmptyRect(star)
           ? gfx::Rect(bookmark_anchor_->GetRootWidth() - 12, 0, 0, 40)
           : bookmark_anchor_->ConvertFromScreen([GetNativeWindow()
                                                          .GetNativeNSWindow()
                 convertRectToScreen:star]);
-  BookmarkBubbleView::ShowBubble(bookmark_anchor_->AnchorAt(anchor_rect),
-                                 contents, /*highlighted_button=*/nullptr,
-                                 browser_, url, already_bookmarked);
+  return bookmark_anchor_->AnchorAt(rect);
+}
+
+void BEBrowserWindow::ShowBookmarkBubble(const GURL& url,
+                                         bool already_bookmarked) {
+  content::WebContents* contents =
+      browser_->GetTabStripModel()->GetActiveWebContents();
+  views::BubbleAnchor anchor = GetAddressFieldAnchor();
+  if (!contents || !anchor) {
+    return;
+  }
+  // ToolbarView::ShowBookmarkBubble(), pointing at the app's star.
+  BookmarkBubbleView::ShowBubble(anchor, contents,
+                                 /*highlighted_button=*/nullptr, browser_, url,
+                                 already_bookmarked);
 }
 
 ShowTranslateBubbleResult BEBrowserWindow::ShowTranslateBubble(
@@ -1009,6 +1020,12 @@ void BEBrowserWindow::OnTabStripModelChanged(
 void BEBrowserWindow::OnTabChangedAt(tabs::TabInterface* tab,
                                      TabChangeType change_type) {
   // Chrome's own coalesced "this tab's title/loading/URL changed".
+  [[BEChromiumTab existingTabForTab:tab] scheduleUpdate];
+}
+
+void BEBrowserWindow::OnTabPinnedStateChanged(tabs::TabInterface* tab,
+                                              int index) {
+  // After the move to the pinned tabs' end, which came as didMoveTab:.
   [[BEChromiumTab existingTabForTab:tab] scheduleUpdate];
 }
 

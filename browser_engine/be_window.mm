@@ -2,6 +2,7 @@
 
 #import <AppKit/AppKit.h>
 
+#include <algorithm>
 #include <memory>
 #include <utility>
 
@@ -16,20 +17,22 @@
 #import "browser_engine/be_closed.h"
 #import "browser_engine/be_engine.h"
 #import "browser_engine/be_extensions.h"
+#include "browser_engine/be_menus.h"
 #import "browser_engine/be_tab.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/exit_type_service.h"
 #include "chrome/browser/sessions/session_restore.h"
+#include "chrome/browser/tab_list/tab_removed_reason.h"
 #include "chrome/browser/ui/bookmarks/bookmark_bar.h"
 #include "chrome/browser/ui/bookmarks/bookmark_bar_controller.h"
-#include "chrome/browser/tab_list/tab_removed_reason.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
 #include "chrome/browser/ui/tabs/tab_enums.h"
+#include "chrome/browser/ui/tabs/tab_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/tabs/tab_strip_user_gesture_details.h"
@@ -39,6 +42,7 @@
 #include "ui/base/window_open_disposition_utils.h"
 #include "ui/events/cocoa/cocoa_event_utils.h"
 #include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/mac/coordinate_conversion.h"
 #include "url/gurl.h"
 
@@ -604,6 +608,72 @@ int CommandIdForCommand(BECommand command) {
           _window ? _window->extensions() : nullptr) {
     extensions->Run(base::SysNSStringToUTF8(identifier), rect);
   }
+}
+
+// `point` in `view` as Chromium's screen coordinates, for its menus.
+- (gfx::Point)screenPoint:(NSPoint)point inView:(NSView*)view {
+  return gfx::ScreenPointFromNSPoint([view.window
+      convertPointToScreen:[view convertPoint:point toView:nil]]);
+}
+
+- (void)showMenuForTabAtIndex:(NSInteger)index
+                      atPoint:(NSPoint)point
+                       inView:(NSView*)view {
+  BrowserWindowInterface* browser = [self browser];
+  if (browser && view.window) {
+    browser_engine::ShowTabMenu(browser, _window->widget(),
+                                static_cast<int>(index),
+                                [self screenPoint:point inView:view]);
+  }
+}
+
+- (void)showHistoryMenuForward:(BOOL)forward
+                       atPoint:(NSPoint)point
+                        inView:(NSView*)view {
+  BrowserWindowInterface* browser = [self browser];
+  if (browser && view.window) {
+    browser_engine::ShowHistoryMenu(browser, _window->widget(), forward,
+                                    [self screenPoint:point inView:view]);
+  }
+}
+
+- (void)moveTabAtIndex:(NSInteger)index toNewWindowWithFrame:(NSRect)frame {
+  TabStripModel* model = [self tabStripModel];
+  if (!model || !model->ContainsIndex(static_cast<int>(index))) {
+    return;
+  }
+  // As the tab menu's Move Tab to New Window (chrome::MoveTabsToNewWindow()),
+  // then where the tab was dropped, as Chrome's tab dragging places it.
+  tabs::TabInterface* tab = model->GetTabAtIndex(static_cast<int>(index));
+  const tabs::TabHandle handle = tab->GetHandle();
+  chrome::MoveTabsToNewWindow([self browser], {static_cast<int>(index)});
+  tabs::TabInterface* moved = handle.Get();
+  if (BrowserWindowInterface* target =
+          moved ? moved->GetBrowserWindowInterface() : nullptr) {
+    target->GetWindow()->SetBounds(gfx::ScreenRectFromNSRect(frame));
+  }
+}
+
+- (void)moveTabAtIndex:(NSInteger)index
+              toWindow:(id<BEWindow>)window
+               atIndex:(NSInteger)targetIndex {
+  TabStripModel* model = [self tabStripModel];
+  BEChromiumWindow* target = [(id)window isKindOfClass:[BEChromiumWindow class]]
+                                 ? static_cast<BEChromiumWindow*>(window)
+                                 : nil;
+  TabStripModel* targetModel = target ? [target tabStripModel] : nullptr;
+  if (!model || !targetModel || targetModel == model ||
+      !model->ContainsIndex(static_cast<int>(index)) || targetIndex < 0) {
+    return;
+  }
+  // As dropping a dragged tab on another window's strip does (TabDragController
+  // attaching it there): detached here, inserted and selected there.
+  std::unique_ptr<tabs::TabModel> tab =
+      model->DetachTabAtForInsertion(static_cast<int>(index));
+  targetModel->InsertDetachedTabAt(
+      std::min(static_cast<int>(targetIndex), targetModel->count()),
+      std::move(tab), AddTabTypes::ADD_ACTIVE);
+  [target browser]->GetWindow()->Activate();
 }
 
 - (void)restoreClosedItem:(int32_t)identifier {

@@ -22,6 +22,7 @@
 #include "browser_engine/be_browser_window.h"
 #import "browser_engine/be_closed.h"
 #include "browser_engine/be_downloads.h"
+#import "browser_engine/be_most_visited.h"
 #import "browser_engine/be_preferences.h"
 #import "browser_engine/be_visited.h"
 #include "browser_engine/browser_engine_hooks.h"
@@ -353,6 +354,7 @@ id<BEEngine> GetEngine() {
   std::unique_ptr<browser_engine::BERecentlyClosed> _recentlyClosed;
   std::unique_ptr<browser_engine::BERecentlyVisited> _recentlyVisited;
   std::unique_ptr<browser_engine::BEBookmarks> _bookmarks;
+  std::unique_ptr<browser_engine::BEMostVisited> _mostVisited;
 }
 
 - (instancetype)init {
@@ -433,6 +435,19 @@ id<BEEngine> GetEngine() {
   browser_engine::BERecentlyVisited* recentlyVisited =
       browser_engine::Watch(_recentlyVisited, [self everydayProfile]);
   return recentlyVisited ? recentlyVisited->items() : @[];
+}
+
+- (NSArray<id<BEVisitedPage>>*)mostVisited {
+  browser_engine::BEMostVisited* mostVisited =
+      browser_engine::Watch(_mostVisited, [self everydayProfile]);
+  return mostVisited ? mostVisited->items() : @[];
+}
+
+- (void)setMostVisitedURL:(NSURL*)url removed:(BOOL)removed {
+  if (browser_engine::BEMostVisited* mostVisited =
+          browser_engine::Watch(_mostVisited, [self everydayProfile])) {
+    mostVisited->SetRemoved(net::GURLWithNSURL(url), removed);
+  }
 }
 
 - (id<BEPreferences>)preferences {
@@ -576,6 +591,8 @@ id<BEEngine> GetEngine() {
   browser_engine::Watch(_recentlyClosed, profile);
   browser_engine::Watch(_recentlyVisited, profile);
   browser_engine::Watch(_bookmarks, profile);
+  // As the new tab page's tiles, ready when the app first shows one.
+  browser_engine::Watch(_mostVisited, profile);
   if (_pendingURLs.count) {
     NSArray<NSURL*>* urls = [_pendingURLs copy];
     [_pendingURLs removeAllObjects];

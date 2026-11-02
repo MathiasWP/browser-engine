@@ -7,6 +7,7 @@
 #include "base/functional/bind.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/time/time.h"
+#import "browser_engine/be_visited_page.h"
 #import "browser_engine/be_closed.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -14,20 +15,6 @@
 #include "components/keyed_service/core/service_access_type.h"
 #include "net/base/apple/url_conversions.h"
 #include "url/gurl.h"
-
-NS_ASSUME_NONNULL_BEGIN
-
-// One page as the app reads it. BERecentlyVisited keeps the object while the
-// page is listed, and sets its title again each time it lists the pages (a
-// page's title often comes after its visit).
-@interface BEChromiumVisitedPage : NSObject <BEVisitedPage>
-- (instancetype)initWithURL:(NSURL*)url NS_DESIGNATED_INITIALIZER;
-- (instancetype)init NS_UNAVAILABLE;
-@property(nonatomic, readwrite, copy) NSString* title;
-@property(nonatomic, readwrite, nullable) NSImage* favicon;
-@end
-
-NS_ASSUME_NONNULL_END
 
 @implementation BEChromiumVisitedPage
 

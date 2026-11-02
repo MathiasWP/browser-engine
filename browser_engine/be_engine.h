@@ -19,7 +19,7 @@ namespace browser_engine {
 // runs; nil otherwise.
 id<BEEngineDelegate> _Nullable GetEngineDelegate();
 // The engine the app holds, for the delegate's calls.
-id<BEEngine> GetEngine();
+id<BEEngine> _Nonnull GetEngine();
 
 }  // namespace browser_engine
 

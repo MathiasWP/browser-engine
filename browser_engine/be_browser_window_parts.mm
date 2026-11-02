@@ -3,15 +3,11 @@
 #include <utility>
 
 #include "base/functional/bind.h"
-#include "base/no_destructor.h"
 #include "base/notimplemented.h"
 #include "base/strings/escape.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_engine/be_browser_window.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/autofill/autofill_bubble_base.h"
-#include "chrome/browser/ui/autofill/save_address_bubble_controller.h"
-#include "chrome/browser/ui/autofill/update_address_bubble_controller.h"
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/global_browser_collection.h"
@@ -36,24 +32,6 @@
 #include "url/gurl.h"
 
 namespace browser_engine {
-
-namespace {
-
-// What BEAutofillBubbleHandler shows: nothing. One for the process, so a
-// controller still holding it (its tab moved to another window) never dangles.
-class NoAutofillBubble : public autofill::AutofillBubbleBase {
- public:
-  // autofill::AutofillBubbleBase:
-  void Hide() override {}
-  bool IsMouseHovered() const override { return false; }
-};
-
-autofill::AutofillBubbleBase* NoBubble() {
-  static base::NoDestructor<NoAutofillBubble> bubble;
-  return bubble.get();
-}
-
-}  // namespace
 
 // BELocationBar ---------------------------------------------------------------
 
@@ -492,151 +470,78 @@ void BEStatusBubble::SetTexts(std::u16string status_text,
   }
 }
 
-// BEAutofillBubbleHandler -----------------------------------------------------
+// BEToolbarButtons ------------------------------------------------------------
 
-BEAutofillBubbleHandler::BEAutofillBubbleHandler(
-    BrowserWindowInterface* browser)
-    : scoped_user_data_(browser->GetUnownedUserDataHost(), *this) {}
+BEToolbarButtons::BEToolbarButtons(BEBrowserWindow* window) : window_(window) {}
 
-BEAutofillBubbleHandler::~BEAutofillBubbleHandler() = default;
+BEToolbarButtons::~BEToolbarButtons() = default;
 
-autofill::AutofillBubbleBase* BEAutofillBubbleHandler::ShowSaveCreditCardBubble(
-    content::WebContents* web_contents,
-    autofill::SaveCardBubbleController* controller,
-    bool is_user_gesture) {
-  return NoBubble();
+ExtensionsContainerViews* BEToolbarButtons::GetExtensionsContainerViews() {
+  return nullptr;
 }
 
-autofill::AutofillBubbleBase* BEAutofillBubbleHandler::ShowIbanBubble(
-    content::WebContents* web_contents,
-    autofill::IbanBubbleController* controller,
-    bool is_user_gesture,
-    autofill::IbanBubbleType bubble_type) {
-  return NoBubble();
+PinnedToolbarActions* BEToolbarButtons::GetPinnedToolbarActions() {
+  return nullptr;
 }
 
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowOfferNotificationBubble(
-    content::WebContents* web_contents,
-    autofill::OfferNotificationBubbleController* controller,
-    bool is_user_gesture) {
-  return NoBubble();
+gfx::Size BEToolbarButtons::GetToolbarButtonSize() const {
+  return gfx::Size();
 }
 
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowSaveAutofillAiDataBubble(
-    content::WebContents* web_contents,
-    autofill::AutofillAiImportDataController* controller) {
-  return NoBubble();
+views::BubbleAnchor BEToolbarButtons::GetDefaultExtensionDialogAnchor() {
+  return window_->GetAddressFieldAnchor();
 }
 
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowAutofillAiLocalSaveNotification(
-    content::WebContents* web_contents,
-    autofill::AutofillAiImportDataController* controller) {
-  return NoBubble();
+page_actions::PageActionViewInterface*
+BEToolbarButtons::GetPageActionViewInterface(actions::ActionId action_id) {
+  return nullptr;
 }
 
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowSaveAddressProfileBubble(
-    content::WebContents* web_contents,
-    std::unique_ptr<autofill::SaveAddressBubbleController> controller,
-    bool is_user_gesture) {
-  // Patch 13 declines address prompts before they get here. A bubble would
-  // own `controller`; with none it goes now.
-  return NoBubble();
+AppMenuControl* BEToolbarButtons::GetAppMenuControl() {
+  return nullptr;
 }
 
-#if BUILDFLAG(ENABLE_DICE_SUPPORT)
-autofill::AutofillBubbleBase* BEAutofillBubbleHandler::ShowAddressSignInPromo(
-    content::WebContents* web_contents,
-    const autofill::AutofillProfile& autofill_profile) {
-  return NoBubble();
-}
-#endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
-
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowUpdateAddressProfileBubble(
-    content::WebContents* web_contents,
-    std::unique_ptr<autofill::UpdateAddressBubbleController> controller,
-    bool is_user_gesture) {
-  return NoBubble();  // As ShowSaveAddressProfileBubble().
+gfx::Rect BEToolbarButtons::GetFindBarBoundingBox(int contents_bottom) {
+  return gfx::Rect();
 }
 
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowFilledCardInformationBubble(
-    content::WebContents* web_contents,
-    autofill::FilledCardInformationBubbleController* controller,
-    bool is_user_gesture) {
-  return NoBubble();
+void BEToolbarButtons::FocusToolbar() {}
+
+views::AccessiblePaneView* BEToolbarButtons::GetAsAccessiblePaneView() {
+  return nullptr;
 }
 
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowVirtualCardEnrollBubble(
-    content::WebContents* web_contents,
-    autofill::VirtualCardEnrollBubbleController* controller,
-    bool is_user_gesture) {
-  return NoBubble();
+views::BubbleAnchor BEToolbarButtons::GetBubbleAnchor(
+    std::optional<actions::ActionId> action_id) {
+  return window_->GetAddressFieldAnchor();
 }
 
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowVirtualCardEnrollConfirmationBubble(
-    content::WebContents* web_contents,
-    autofill::VirtualCardEnrollBubbleController* controller) {
-  return NoBubble();
+views::BubbleAnchor BEToolbarButtons::GetPageActionBubbleAnchor(
+    actions::ActionId action_id) {
+  return window_->GetAddressFieldAnchor();
 }
 
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowMandatoryReauthBubble(
-    content::WebContents* web_contents,
-    autofill::MandatoryReauthBubbleController* controller,
-    bool is_user_gesture,
-    autofill::MandatoryReauthBubbleType bubble_type) {
-  return NoBubble();
+void BEToolbarButtons::ZoomChangedForActiveTab(bool can_show_bubble) {}
+
+AvatarToolbarButtonInterface*
+BEToolbarButtons::GetAvatarToolbarButtonInterface() {
+  return nullptr;
 }
 
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowSaveCardConfirmationBubble(
-    content::WebContents* web_contents,
-    autofill::SaveCardBubbleController* controller) {
-  return NoBubble();
+ToolbarButton* BEToolbarButtons::GetBackButton() {
+  return nullptr;
 }
 
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowSaveIbanConfirmationBubble(
-    content::WebContents* web_contents,
-    autofill::IbanBubbleController* controller) {
-  return NoBubble();
+ReloadControl* BEToolbarButtons::GetReloadButton() {
+  return nullptr;
 }
 
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowOmniboxAutofillBubble(
-    content::WebContents* web_contents,
-    autofill::OmniboxAutofillBubbleController* controller) {
-  return NoBubble();
+ToolbarButton* BEToolbarButtons::GetDownloadButton() {
+  return nullptr;
 }
 
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowPaymentsChurnedUsersBubble(
-    content::WebContents* web_contents,
-    autofill::PaymentsChurnedUsersBubbleController* controller,
-    bool is_user_gesture) {
-  return NoBubble();
-}
-
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowPaymentsChurnedUsersConfirmationBubble(
-    content::WebContents* web_contents,
-    autofill::PaymentsChurnedUsersBubbleController* controller) {
-  return NoBubble();
-}
-
-autofill::AutofillBubbleBase*
-BEAutofillBubbleHandler::ShowWalletReminderNoticeBubble(
-    content::WebContents* web_contents,
-    autofill::WalletReminderNoticeBubbleController* controller,
-    bool is_user_gesture) {
-  return NoBubble();
+WebUIToolbarWebView* BEToolbarButtons::GetWebUIToolbarViewForTesting() {
+  return nullptr;
 }
 
 }  // namespace browser_engine

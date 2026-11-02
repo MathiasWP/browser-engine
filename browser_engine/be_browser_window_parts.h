@@ -2,8 +2,8 @@
 // a location bar, an exclusive-access (fullscreen) context, a host for
 // tab-modal dialogs and the owner of Chrome's find bar. Each is a copy of
 // Webium's at M156 (chrome/browser/ui/webui_browser/), pointed at our window
-// instead of the WebUI one. The autofill bubble handler and the status bubble
-// are ours: Webium has neither.
+// instead of the WebUI one. The toolbar that Chrome's autofill bubbles anchor
+// to and the status bubble are ours: Webium has neither.
 
 #ifndef BROWSER_ENGINE_BE_BROWSER_WINDOW_PARTS_H_
 #define BROWSER_ENGINE_BE_BROWSER_WINDOW_PARTS_H_
@@ -16,12 +16,12 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/task/cancelable_task_tracker.h"
-#include "chrome/browser/ui/autofill/autofill_bubble_handler.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/status_bubble.h"
 #include "chrome/browser/ui/views/exclusive_access/exclusive_access_bubble_views_context.h"
 #include "chrome/browser/ui/views/find_bar_owner.h"
+#include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
 #include "components/signin/public/base/signin_buildflags.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "ui/base/unowned_user_data/scoped_unowned_user_data.h"
@@ -219,94 +219,46 @@ class BEStatusBubble : public StatusBubble {
   std::u16string url_text_;
 };
 
-// Chrome's autofill and payments bubbles (save or update an address, save a
-// card or IBAN, virtual cards, Autofill AI...) don't show in our windows yet;
-// the app will show its own. Like BrowserView's AutofillBubbleHandlerImpl this
-// is both GetAutofillBubbleHandler() and the browser's UnownedUserData, so
-// every caller finds a handler. Each Show*() returns a bubble that isn't
-// there: most callers dereference the result (SetBubbleView(*...), then
-// CHECK(bubble_view())), and they only ever call Hide() and IsMouseHovered()
-// on it (autofill_bubble_controller_base.cc).
-class BEAutofillBubbleHandler : public autofill::AutofillBubbleHandler {
+// What Chrome's autofill and payments bubbles (save or update an address,
+// save a card or IBAN, virtual cards...) ask the toolbar for: where to point.
+// Chrome's own AutofillBubbleHandlerImpl shows them, anchored to the app's
+// star at the address field's end, where Chrome's page action icons would
+// be (BEBrowserWindow::GetAddressFieldAnchor()). Nothing else of a toolbar
+// exists; it isn't the browser's ToolbarButtonProvider, so no one else finds
+// these stubs.
+class BEToolbarButtons : public ToolbarButtonProvider {
  public:
-  explicit BEAutofillBubbleHandler(BrowserWindowInterface* browser);
-  BEAutofillBubbleHandler(const BEAutofillBubbleHandler&) = delete;
-  BEAutofillBubbleHandler& operator=(const BEAutofillBubbleHandler&) = delete;
-  ~BEAutofillBubbleHandler() override;
+  explicit BEToolbarButtons(BEBrowserWindow* window);
+  BEToolbarButtons(const BEToolbarButtons&) = delete;
+  BEToolbarButtons& operator=(const BEToolbarButtons&) = delete;
+  ~BEToolbarButtons() override;
 
-  // autofill::AutofillBubbleHandler:
-  autofill::AutofillBubbleBase* ShowSaveCreditCardBubble(
-      content::WebContents* web_contents,
-      autofill::SaveCardBubbleController* controller,
-      bool is_user_gesture) override;
-  autofill::AutofillBubbleBase* ShowIbanBubble(
-      content::WebContents* web_contents,
-      autofill::IbanBubbleController* controller,
-      bool is_user_gesture,
-      autofill::IbanBubbleType bubble_type) override;
-  autofill::AutofillBubbleBase* ShowOfferNotificationBubble(
-      content::WebContents* web_contents,
-      autofill::OfferNotificationBubbleController* controller,
-      bool is_user_gesture) override;
-  autofill::AutofillBubbleBase* ShowSaveAutofillAiDataBubble(
-      content::WebContents* web_contents,
-      autofill::AutofillAiImportDataController* controller) override;
-  autofill::AutofillBubbleBase* ShowAutofillAiLocalSaveNotification(
-      content::WebContents* web_contents,
-      autofill::AutofillAiImportDataController* controller) override;
-  autofill::AutofillBubbleBase* ShowSaveAddressProfileBubble(
-      content::WebContents* web_contents,
-      std::unique_ptr<autofill::SaveAddressBubbleController> controller,
-      bool is_user_gesture) override;
-#if BUILDFLAG(ENABLE_DICE_SUPPORT)
-  autofill::AutofillBubbleBase* ShowAddressSignInPromo(
-      content::WebContents* web_contents,
-      const autofill::AutofillProfile& autofill_profile) override;
-#endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
-  autofill::AutofillBubbleBase* ShowUpdateAddressProfileBubble(
-      content::WebContents* web_contents,
-      std::unique_ptr<autofill::UpdateAddressBubbleController> controller,
-      bool is_user_gesture) override;
-  autofill::AutofillBubbleBase* ShowFilledCardInformationBubble(
-      content::WebContents* web_contents,
-      autofill::FilledCardInformationBubbleController* controller,
-      bool is_user_gesture) override;
-  autofill::AutofillBubbleBase* ShowVirtualCardEnrollBubble(
-      content::WebContents* web_contents,
-      autofill::VirtualCardEnrollBubbleController* controller,
-      bool is_user_gesture) override;
-  autofill::AutofillBubbleBase* ShowVirtualCardEnrollConfirmationBubble(
-      content::WebContents* web_contents,
-      autofill::VirtualCardEnrollBubbleController* controller) override;
-  autofill::AutofillBubbleBase* ShowMandatoryReauthBubble(
-      content::WebContents* web_contents,
-      autofill::MandatoryReauthBubbleController* controller,
-      bool is_user_gesture,
-      autofill::MandatoryReauthBubbleType bubble_type) override;
-  autofill::AutofillBubbleBase* ShowSaveCardConfirmationBubble(
-      content::WebContents* web_contents,
-      autofill::SaveCardBubbleController* controller) override;
-  autofill::AutofillBubbleBase* ShowSaveIbanConfirmationBubble(
-      content::WebContents* web_contents,
-      autofill::IbanBubbleController* controller) override;
-  autofill::AutofillBubbleBase* ShowOmniboxAutofillBubble(
-      content::WebContents* web_contents,
-      autofill::OmniboxAutofillBubbleController* controller) override;
-  autofill::AutofillBubbleBase* ShowPaymentsChurnedUsersBubble(
-      content::WebContents* web_contents,
-      autofill::PaymentsChurnedUsersBubbleController* controller,
-      bool is_user_gesture) override;
-  autofill::AutofillBubbleBase* ShowPaymentsChurnedUsersConfirmationBubble(
-      content::WebContents* web_contents,
-      autofill::PaymentsChurnedUsersBubbleController* controller) override;
-  autofill::AutofillBubbleBase* ShowWalletReminderNoticeBubble(
-      content::WebContents* web_contents,
-      autofill::WalletReminderNoticeBubbleController* controller,
-      bool is_user_gesture) override;
+  // ToolbarButtonProvider:
+  ExtensionsContainerViews* GetExtensionsContainerViews() override;
+  PinnedToolbarActions* GetPinnedToolbarActions() override;
+  gfx::Size GetToolbarButtonSize() const override;
+  views::BubbleAnchor GetDefaultExtensionDialogAnchor() override;
+  page_actions::PageActionViewInterface* GetPageActionViewInterface(
+      actions::ActionId action_id) override;
+  AppMenuControl* GetAppMenuControl() override;
+  gfx::Rect GetFindBarBoundingBox(int contents_bottom) override;
+  void FocusToolbar() override;
+  views::AccessiblePaneView* GetAsAccessiblePaneView() override;
+  views::BubbleAnchor GetBubbleAnchor(
+      std::optional<actions::ActionId> action_id) override;
+  views::BubbleAnchor GetPageActionBubbleAnchor(
+      actions::ActionId action_id) override;
+  void ZoomChangedForActiveTab(bool can_show_bubble) override;
+  AvatarToolbarButtonInterface* GetAvatarToolbarButtonInterface() override;
+  ToolbarButton* GetBackButton() override;
+  ReloadControl* GetReloadButton() override;
+  ToolbarButton* GetDownloadButton() override;
+  WebUIToolbarWebView* GetWebUIToolbarViewForTesting() override;
 
  private:
-  ui::ScopedUnownedUserData<autofill::AutofillBubbleHandler> scoped_user_data_;
+  raw_ptr<BEBrowserWindow> window_;
 };
+
 
 }  // namespace browser_engine
 

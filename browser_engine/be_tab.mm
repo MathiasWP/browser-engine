@@ -488,6 +488,11 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   return contents && contents->IsAudioMuted();
 }
 
+- (BOOL)isPinned {
+  tabs::TabInterface* tab = [self tab];
+  return tab && tab->IsPinned();
+}
+
 - (void)loadURL:(NSURL*)url {
   tabs::TabInterface* tab = [self tab];
   const GURL gurl = net::GURLWithNSURL(url);
