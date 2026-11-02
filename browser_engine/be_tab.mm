@@ -94,7 +94,6 @@ class TabObserver : public content::WebContentsObserver,
     zoom_observation_.Reset();
     audible_subscription_ = {};
     StopObservingDistillability();
-    distillable_ = false;
     Observe(contents);
     if (!contents) {
       return;
@@ -131,8 +130,17 @@ class TabObserver : public content::WebContentsObserver,
     }
   }
 
-  // The distiller's last verdict for the page showing: an article.
-  bool IsDistillable() const { return distillable_; }
+  // The distiller's verdict on the page showing: an article. Chrome keeps it
+  // with the page (and only an https page can be one, on the desktop).
+  bool IsDistillable() const {
+    if (!web_contents()) {
+      return false;
+    }
+    const std::optional<dom_distiller::DistillabilityResult> result =
+        dom_distiller::GetLatestResult(web_contents());
+    return result && result->is_distillable &&
+           result->url == web_contents()->GetLastCommittedURL();
+  }
 
   void ScheduleUpdate() {
     if (update_pending_) {
@@ -160,12 +168,6 @@ class TabObserver : public content::WebContentsObserver,
   void LoadProgressChanged(double progress) override { ScheduleUpdate(); }
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override {
-    // A new page has no verdict yet.
-    if (navigation_handle->IsInPrimaryMainFrame() &&
-        navigation_handle->HasCommitted() &&
-        !navigation_handle->IsSameDocument()) {
-      distillable_ = false;
-    }
     ScheduleUpdate();
   }
   void NavigationEntryCommitted(
@@ -198,15 +200,10 @@ class TabObserver : public content::WebContentsObserver,
     [tab_ contentsDestroyed];
   }
 
-  // dom_distiller::DistillabilityObserver:
+  // dom_distiller::DistillabilityObserver: the result Chrome passes on lacks
+  // the page's address, which the one it keeps has (IsDistillable()).
   void OnResult(const dom_distiller::DistillabilityResult& result) override {
-    const bool distillable =
-        result.is_distillable &&
-        result.url == web_contents()->GetLastCommittedURL();
-    if (distillable != distillable_) {
-      distillable_ = distillable;
-      ScheduleUpdate();
-    }
+    ScheduleUpdate();
   }
 
   void StopObservingDistillability() {
@@ -244,7 +241,6 @@ class TabObserver : public content::WebContentsObserver,
 
   __weak BEChromiumTab* tab_;
   bool update_pending_ = false;
-  bool distillable_ = false;
   base::ScopedObservation<favicon::FaviconDriver,
                           favicon::FaviconDriverObserver>
       favicon_observation_{this};
