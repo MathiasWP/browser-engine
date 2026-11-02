@@ -100,6 +100,9 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 | `be_tab.{h,mm}` | `BEChromiumTab` (`BETab`): state, favicon, bookmark state (Chrome's `BookmarkTabHelper`), zoom (`ZoomController`), sound and mute (`RecentlyAudibleHelper`, `SetTabAudioMuted`), site settings (`be_site_settings.h`), infobars (`be_infobars.h`), coalesced updates, the per-TabHandle registry |
 | `../patches/browser_engine/*.patch` | The touch points (below) |
 | `../.github/workflows/iterate.yml`, `../.github/scripts/github_iterate.sh` | The incremental build |
+| `../.github/workflows/devsession.yml`, `../.github/scripts/github_devsession.sh` | Dev sessions: one runner building every push |
+| `../.github/scripts/github_pack_headers.py`, `../tools/check.sh` | Compiling layer files on a Mac against the build's headers |
+| `../.github/workflows/retry.yml` | Rerunning release jobs GitHub lost the runner of |
 
 ## Touch points (`patches/browser_engine/`)
 
@@ -154,8 +157,9 @@ patches), and checked with `git apply --check` the way the build applies them.
 
 ## How the build job uses it
 
-`iterate.yml` (workflow_dispatch, input `base_run_id` = a finished `build.yml` run with
-flavor **dev**), on `macos-26-intel`:
+`iterate.yml` (workflow_dispatch; input `base_run_id`, a finished `build.yml` run with flavor
+**dev** or an iterate run made with `save_base`, defaulting to `.github/dev-base.txt`), on
+`macos-26-intel`:
 1. Same setup as building.yml's resuming jobs: checkout with submodules, copy the scripts,
    `github_prepare_xcode.sh`, Spotlight off, download `github_build_artifact_x86_64` from the
    base run (`run-id` + `github-token`, `actions: read`), `github_setup_env_toolchain.sh`,
@@ -181,10 +185,36 @@ flavor **dev**), on `macos-26-intel`:
 release build (ungoogled 155) first painted YouTube and Reddit 10–30% sooner than the dev base
 (156), and Google about the same.
 
-Each run recompiles the 7 patched Chromium files (the patches are re-applied to a fresh
-base), our 10 sources, and relinks the framework. To save those recompiles, a later dev base
-can carry the touch points: add them to `patches/series` and copy `browser_engine/` into the
-tree in `github_fetch_resources.sh`; the iterate script already skips applied patches.
+**Where an iterate run's time goes** (2 Nov, run 41502624089): 16–23 minutes getting the 8 GB
+base onto the fresh runner (download and unpack; streaming one into the other was no faster),
+2 minutes regenerating the build files, then rebuilding everything that changed since the base
+(45 files, 8 minutes) and relinking (1 minute). Until 2 Nov each run also redid all of DevTools'
+TypeScript bundling (about 970 of 1,042 build steps): Homebrew's freshly installed esbuild and
+tsc were newer than its outputs. `github_setup_env_toolchain.sh` now dates them back.
+
+**Keeping the base close:** `iterate.yml` with `save_base` also packs and uploads the run's build
+state (`github_iterate.sh pack`, about 15 minutes more) as `github_build_artifact_x86_64`, like a
+build job. Put that run's id in `.github/dev-base.txt`: later runs and sessions then rebuild only
+what changed after it, and skip regenerating the build files unless a `BUILD.gn` changed.
+
+**Dev sessions** (`devsession.yml`, `github_devsession.sh`): one runner downloads and unpacks the
+base once, then builds every push to the branch it was started on, keeping the build state, for
+up to about 5½ hours or until `idle_minutes` pass without a push. Touch points that changed are
+reversed (from copies of the last applied ones) before `github_iterate.sh build` applies them
+again, so files no change touches keep their mtimes. Each engine goes to the prerelease
+`dev-session` as `engine-<sha>.zip` (the iterate artifact's three files), or `engine-<sha>.log`
+when its build failed; the ten newest stay. The app's `scripts/fetch-engine.sh session <commit>`
+waits for one and fetches it.
+
+**Checking on the Mac** (`tools/check.sh`): compiles the layer's sources and the touch points'
+files with the engine build's clang, compile commands and headers, which an iterate run made
+with `pack_headers` uploads (`github_pack_headers.py`: every header in the tree, the generated
+ones, libc++, clang and its plugins, and the touch points' files before our patches). Compile
+errors in about a minute; it doesn't link.
+
+**Lost runners:** `retry.yml` reruns a failed `build.yml` job when its annotations say GitHub
+lost the runner ("lost communication with the server"), up to twice; the job resumes from the
+last finished job's saved state.
 
 ## What the app must do (runtime contract)
 
