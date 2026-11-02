@@ -91,6 +91,11 @@ void BEMostVisited::OnURLsAvailable(
   }
   NSMutableArray<BEChromiumVisitedPage*>* items = [NSMutableArray array];
   for (const ntp_tiles::NTPTile& tile : it->second) {
+    // ungoogled-chromium's domain substitution leaves Chrome's prepopulated
+    // Web Store page on a host that doesn't exist.
+    if (tile.url.DomainIs("qjz9zk")) {
+      continue;
+    }
     NSURL* url = net::NSURLWithGURL(tile.url);
     if (!url) {
       continue;
