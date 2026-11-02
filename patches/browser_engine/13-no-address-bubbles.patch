@@ -1,0 +1,35 @@
+# browser_engine touch point: saving or updating an address crashes in our
+# windows. AddressBubblesController finds its window with
+# BrowserWindow::FindBrowserWindowWithWebContents(), which at 156 returns only
+# BrowserViews (browser_view.cc), and calls GetAutofillBubbleHandler() on the
+# null result. No address bubbles inside the app until it shows its own: the
+# backend hears "declined without asking", as when a bubble can't show.
+
+diff --git a/chrome/browser/ui/autofill/address_bubbles_controller.cc b/chrome/browser/ui/autofill/address_bubbles_controller.cc
+--- a/chrome/browser/ui/autofill/address_bubbles_controller.cc
++++ b/chrome/browser/ui/autofill/address_bubbles_controller.cc
+@@ -14,6 +14,7 @@
+ #include "base/strings/string_util.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/types/optional_util.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "bubble_controller_base.h"
+ #include "chrome/browser/autofill/ui/ui_util.h"
+ #include "chrome/browser/browser_process.h"
+@@ -117,6 +118,16 @@ void AddressBubblesController::SetUpAndShowSaveOrUpdateAddressBubble(
+     AutofillClient::SaveAddressBubbleType save_address_bubble_type,
+     bool user_has_any_profile_saved,
+     AutofillClient::AddressProfileSavePromptCallback callback) {
++  // browser_engine: no address bubbles in our windows yet. The lookups below
++  // (BrowserWindow::FindBrowserWindowWithWebContents()) find BrowserViews
++  // only, and come back null there. Decline as when a bubble can't show.
++  if (browser_engine::IsEmbedded() &&
++      !BrowserWindow::FindBrowserWindowWithWebContents(web_contents)) {
++    std::move(callback).Run(
++        AutofillClient::AddressPromptUserDecision::kAutoDeclined,
++        std::nullopt);
++    return;
++  }
+   AddressBubblesController::CreateForWebContents(web_contents);
+   auto* controller = AddressBubblesController::FromWebContents(web_contents);
+   bool is_save_bubble = !original_profile;
