@@ -27,7 +27,7 @@ gh release view "$_release" >/dev/null 2>&1 ||
     --notes "Engines built by devsession.yml, one per commit; for scripts/fetch-engine.sh in the app."
 
 cd "$_root_dir"
-_base_sha="$(gh run view "${BE_BASE_RUN_ID:?}" --json headSha --jq .headSha)"
+_base_sha="$(gh run view "${BE_BASE_RUN_ID:?}" -R "$GITHUB_REPOSITORY" --json headSha --jq .headSha)"
 git fetch -q --depth=1 origin "$_base_sha"
 for _patch in $(git ls-tree --name-only "$_base_sha" patches/browser_engine/ | grep '\.patch$'); do
   git show "$_base_sha:$_patch" >"$_applied/$(basename "$_patch")"

@@ -62,7 +62,7 @@ build() {
   # session does, no longer reverse-applies and is left alone.
   if [[ -n "${BE_BASE_RUN_ID:-}" ]]; then
     local _base_sha _name
-    _base_sha="$(gh run view "$BE_BASE_RUN_ID" --json headSha --jq .headSha)"
+    _base_sha="$(gh run view "$BE_BASE_RUN_ID" -R "$GITHUB_REPOSITORY" --json headSha --jq .headSha)"
     git -C "$_root_dir" fetch -q --depth=1 origin "$_base_sha"
     for _name in $(git -C "$_root_dir" ls-tree --name-only "$_base_sha" patches/browser_engine/ | grep '\.patch$'); do
       _patch="$(mktemp)"
