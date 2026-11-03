@@ -60,6 +60,7 @@ void BEProfiles::Start() {
   if (ProfileAttributesStorage* storage = Storage();
       storage && !observation_.IsObserving()) {
     observation_.Observe(storage);
+    manager_observation_.Observe(g_browser_process->profile_manager());
     // The app's windows came before the list: it reads it now.
     NotifyChange();
   }
@@ -121,6 +122,12 @@ void BEProfiles::OnProfileHighResAvatarLoaded(
 
 void BEProfiles::OnProfileIsOmittedChanged(const base::FilePath& profile_path) {
   NotifyChange();
+}
+
+void BEProfiles::OnProfileManagerDestroying() {
+  // The engine outlives it.
+  observation_.Reset();
+  manager_observation_.Reset();
 }
 
 void BEProfiles::NotifyChange() {

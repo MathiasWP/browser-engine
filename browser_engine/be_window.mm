@@ -800,8 +800,8 @@ int CommandIdForCommand(BECommand command) {
   if (!group) {
     return;
   }
-  const TabGroup* tabGroup = model->group_model()->GetTabGroup(*group);
-  const tab_groups::TabGroupVisualData visuals = *tabGroup->visual_data();
+  const tab_groups::TabGroupVisualData visuals =
+      *model->group_model()->GetTabGroup(*group)->visual_data();
   if (visuals.is_collapsed() == static_cast<bool>(collapsed)) {
     return;
   }
@@ -819,11 +819,16 @@ int CommandIdForCommand(BECommand command) {
       model->delegate()->AddTabAt(GURL(), -1, /*foreground=*/true);
     }
   }
+  // The app heard of the switch, and may have changed the group: look again,
+  // as Chrome does after activating.
+  if (!model->group_model()->ContainsTabGroup(*group)) {
+    return;
+  }
   model->ChangeTabGroupVisuals(
       *group,
       tab_groups::TabGroupVisualData(visuals.title(), visuals.color(),
                                      collapsed),
-      tabGroup->IsCustomized());
+      model->group_model()->GetTabGroup(*group)->IsCustomized());
 }
 
 - (void)showEditorForTabGroup:(NSString*)identifier

@@ -16,12 +16,16 @@
 #import "browser_engine/public/BEEngine.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_attributes_storage_observer.h"
+#include "chrome/browser/profiles/profile_manager_observer.h"
+
+class ProfileManager;
 
 namespace browser_engine {
 
 // One for the process, in the engine, watching from when Chromium has
-// started.
-class BEProfiles : public ProfileAttributesStorageObserver {
+// started until the ProfileManager, which holds the list, goes.
+class BEProfiles : public ProfileAttributesStorageObserver,
+                   public ProfileManagerObserver {
  public:
   BEProfiles();
   BEProfiles(const BEProfiles&) = delete;
@@ -50,6 +54,10 @@ class BEProfiles : public ProfileAttributesStorageObserver {
       const base::FilePath& profile_path) override;
   void OnProfileIsOmittedChanged(const base::FilePath& profile_path) override;
 
+  // ProfileManagerObserver (its OnProfileAdded is another one's):
+  using ProfileManagerObserver::OnProfileAdded;
+  void OnProfileManagerDestroying() override;
+
   // Tells the engine delegate, once per task.
   void NotifyChange();
   void SendChange();
@@ -57,6 +65,8 @@ class BEProfiles : public ProfileAttributesStorageObserver {
   base::ScopedObservation<ProfileAttributesStorage,
                           ProfileAttributesStorageObserver>
       observation_{this};
+  base::ScopedObservation<ProfileManager, ProfileManagerObserver>
+      manager_observation_{this};
   bool change_pending_ = false;
   base::WeakPtrFactory<BEProfiles> weak_factory_{this};
 };

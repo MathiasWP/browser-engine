@@ -586,14 +586,20 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   }
   void (^callback)(NSString* _Nullable) = [completion copy];
   // Chrome's translate script runs in this world too. The callback runs even
-  // if the frame goes first (with no value then).
+  // if the frame goes first (with no value then), which can be in the middle
+  // of the frame's teardown: the app hears on a task of its own.
   contents->GetPrimaryMainFrame()->ExecuteJavaScriptInIsolatedWorld(
       base::SysNSStringToUTF16(script),
       mojo::WrapCallbackWithDefaultInvokeIfNotRun(
           base::BindOnce(^(base::Value value) {
             const std::optional<std::string> json = base::WriteJson(value);
-            callback(json && !value.is_none() ? base::SysUTF8ToNSString(*json)
-                                              : nil);
+            NSString* result = json && !value.is_none()
+                                   ? base::SysUTF8ToNSString(*json)
+                                   : nil;
+            base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+                FROM_HERE, base::BindOnce(^{
+                  callback(result);
+                }));
           }),
           base::Value()),
       ISOLATED_WORLD_ID_TRANSLATE);
