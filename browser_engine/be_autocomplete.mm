@@ -13,6 +13,7 @@
 #include "chrome/browser/omnibox/autocomplete_controller_emitter_factory.h"
 #include "chrome/browser/omnibox/chrome_omnibox_navigation_observer_base.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
@@ -30,6 +31,8 @@
 #include "components/omnibox/browser/location_bar_model.h"
 #include "components/omnibox/common/omnibox_features.h"
 #include "components/search_engines/template_url.h"
+#include "components/search_engines/template_url_service.h"
+#include "components/search_engines/template_url_starter_pack_data.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/apple/url_conversions.h"
@@ -184,6 +187,24 @@ void OpenMatch(BrowserWindowInterface* browser,
                                               match, AutocompleteMatch());
 }
 
+// Whether `text` starts with one of Chrome's starter-pack keywords ("@tabs",
+// "@history", "@bookmarks") and a space: where Chrome's omnibox enters keyword
+// mode by itself (OmniboxEditModel::MaybeAcceptKeywordBySpace()). Only these,
+// as the app shows no keyword chip and an "@" word means nothing else.
+bool IsStarterPackKeywordInput(const std::u16string& text, Profile* profile) {
+  const size_t space = text.find(u' ');
+  if (text.empty() || text[0] != u'@' || space == std::u16string::npos) {
+    return false;
+  }
+  TemplateURLService* service =
+      TemplateURLServiceFactory::GetForProfile(profile);
+  const TemplateURL* template_url =
+      service ? service->GetTemplateURLForKeyword(text.substr(0, space))
+              : nullptr;
+  return template_url && template_url->starter_pack_id() !=
+                             template_url_starter_pack_data::StarterPackId::kNone;
+}
+
 }  // namespace
 
 BEAutocomplete::BEAutocomplete(BrowserWindowInterface* browser,
@@ -226,8 +247,9 @@ void BEAutocomplete::Start(const std::u16string& text,
   text_ = text;
   shown_is_current_ = false;
 
-  // As OmniboxEditModel::StartAutocomplete() outside keyword mode (the app has
-  // none), with the page and https-first setting ChromeOmniboxClient gives it.
+  // As OmniboxEditModel::StartAutocomplete(), with the page and https-first
+  // setting ChromeOmniboxClient gives it; in keyword mode only for a
+  // starter-pack keyword.
   AutocompleteInput input(
       text, text.length(), GetPageClassification(), scheme_classifier_,
       base::FeatureList::IsEnabled(omnibox::kDefaultTypedNavigationsToHttps));
@@ -237,7 +259,10 @@ void BEAutocomplete::Start(const std::u16string& text,
     input.set_current_title(contents->GetTitle());
   }
   input.set_prevent_inline_autocomplete(!allow_inline_completion);
-  input.set_allow_exact_keyword_match(false);
+  const bool keyword_mode =
+      IsStarterPackKeywordInput(text, browser_->GetProfile());
+  input.set_allow_exact_keyword_match(keyword_mode);
+  input.set_in_keyword_mode(keyword_mode);
   input.set_omit_asynchronous_matches(false);
   // Reports a first result before it returns (OnResultChanged()).
   controller_->Start(input);
