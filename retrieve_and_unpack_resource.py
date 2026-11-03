@@ -192,17 +192,8 @@ def _clone_source(pgo_profile: str) -> None:
         root = Path(temporary)
         utils = root / "utils"
         utils.mkdir()
-        for name in ("_common.py", "gsutil.patch"):
+        for name in ("clone.py", "_common.py", "gsutil.patch"):
             shutil.copy2(UTILS_DIR / name, utils / name)
-        # googlesource's mirror lacks the clang-format commit 156's DEPS pins (a shallow fetch of it
-        # answers HTTP 500, gitiles 404, since 3 Nov 2026), and the build doesn't use clang-format's
-        # sources: skipped, as clone.py skips its own unused large ones.
-        clone = (UTILS_DIR / "clone.py").read_text()
-        skipped = '      "UC_OUT/third_party/angle/third_party/VK-GL-CTS/src": None,\n'
-        if clone.count(skipped) != 1:
-            raise RuntimeError("Upstream clone.py changed; review the skipped dependencies")
-        (utils / "clone.py").write_text(
-            clone.replace(skipped, skipped + '      "UC_OUT/third_party/clang-format/script": None,\n'))
         shutil.copy2(MAIN_REPO / "chromium_version.txt", root / "chromium_version.txt")
         (utils / "depot_tools.patch").write_text(patch)
         _run(sys.executable, utils / "clone.py", "-p", pgo_profile, "-o", SRC_DIR)
