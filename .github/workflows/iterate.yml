@@ -76,6 +76,9 @@ jobs:
         run: ./github_unpack_archive.sh
       - name: Apply the embedding layer and build
         run: ./github_iterate.sh build x86_64 2>&1 | tee -a github_actions_iterate_x86_64.log
+        env:
+          # The dev base's touch points, to take back those changed since (gh run view).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Package the engine
         run: ./github_iterate.sh package x86_64 2>&1 | tee -a github_actions_iterate_x86_64.log
       - name: Upload the engine

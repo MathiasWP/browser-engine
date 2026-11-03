@@ -56,6 +56,24 @@ build() {
   export GIT_CEILING_DIRECTORIES="$_root_dir/build"
   cd "$_src_dir"
   local _patch
+  # Touch points the dev base has that changed or went since come out first:
+  # the base has those of the commit its run built. (Until 3 Nov one renamed
+  # since the base made every run on it fail.) One already taken back, as a dev
+  # session does, no longer reverse-applies and is left alone.
+  if [[ -n "${BE_BASE_RUN_ID:-}" ]]; then
+    local _base_sha _name
+    _base_sha="$(gh run view "$BE_BASE_RUN_ID" --json headSha --jq .headSha)"
+    git -C "$_root_dir" fetch -q --depth=1 origin "$_base_sha"
+    for _name in $(git -C "$_root_dir" ls-tree --name-only "$_base_sha" patches/browser_engine/ | grep '\.patch$'); do
+      _patch="$(mktemp)"
+      git -C "$_root_dir" show "$_base_sha:$_name" >"$_patch"
+      if ! cmp -s "$_patch" "$_root_dir/$_name" && git apply --reverse --check "$_patch" 2>/dev/null; then
+        git apply --reverse "$_patch"
+        echo "Took back the base's $(basename "$_name")"
+      fi
+      rm "$_patch"
+    done
+  fi
   for _patch in "$_root_dir"/patches/browser_engine/*.patch; do
     if git apply --reverse --check "$_patch" 2>/dev/null; then
       echo "Already applied: $(basename "$_patch")"
