@@ -659,6 +659,11 @@ NS_SWIFT_UI_ACTOR
 /// Shows the page in the reader view, if the distiller finds its article, or goes back to the
 /// page. (Chrome: `DistillCurrentPageAndViewIfSuccessful`. Version 15.)
 - (void)setShowsReader:(BOOL)shows;
+/// Runs `script` in the page's main frame, in Chrome's translate world: the page's own scripts
+/// can't see it or its variables, as with an extension's content script. `completion` gets the
+/// script's last value as JSON, or nil (no value, or the page went); promises aren't awaited.
+/// (Version 15.)
+- (void)evaluateJavaScript:(NSString *)script completion:(void (^)(NSString *_Nullable json))completion;
 /// Turns the tab's sound off or on, as the tab strip's audio button does.
 - (void)setMuted:(BOOL)muted;
 @end

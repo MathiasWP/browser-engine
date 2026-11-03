@@ -156,6 +156,7 @@ source_set("browser_engine") {
     "//content/public/common",
     "//extensions/browser",
     "//extensions/common",
+    "//mojo/public/cpp/bindings",
     "//net",
     "//services/device/public/cpp:device_features",
     "//services/device/public/cpp/geolocation",

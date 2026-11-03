@@ -10,6 +10,7 @@
 #include "base/check.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
+#include "base/json/json_writer.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/strings/sys_string_conversions.h"
@@ -36,6 +37,7 @@
 #include "chrome/browser/ui/tab_ui_helper.h"
 #include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_muted_utils.h"
+#include "chrome/common/chrome_isolated_world_ids.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
@@ -54,9 +56,11 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/referrer.h"
+#include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "net/base/apple/url_conversions.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
@@ -571,6 +575,28 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
     controller.LoadURL(page, content::Referrer(), ui::PAGE_TRANSITION_LINK,
                        std::string());
   }
+}
+
+- (void)evaluateJavaScript:(NSString*)script
+                completion:(void (^)(NSString* _Nullable))completion {
+  content::WebContents* contents = [self contents];
+  if (!contents) {
+    completion(nil);
+    return;
+  }
+  void (^callback)(NSString* _Nullable) = [completion copy];
+  // Chrome's translate script runs in this world too. The callback runs even
+  // if the frame goes first (with no value then).
+  contents->GetPrimaryMainFrame()->ExecuteJavaScriptInIsolatedWorld(
+      base::SysNSStringToUTF16(script),
+      mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+          base::BindOnce(^(base::Value value) {
+            const std::optional<std::string> json = base::WriteJson(value);
+            callback(json && !value.is_none() ? base::SysUTF8ToNSString(*json)
+                                              : nil);
+          }),
+          base::Value()),
+      ISOLATED_WORLD_ID_TRANSLATE);
 }
 
 - (NSString*)groupIdentifier {
