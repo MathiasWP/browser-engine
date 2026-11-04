@@ -53,6 +53,16 @@ class BEAutocomplete : public AutocompleteController::Observer {
  private:
   // Sends the window the controller's current result.
   void SendUpdate();
+  // What Chrome's omnibox does for the page the user is likely to open, as
+  // they type (ChromeOmniboxClient::OnTextChanged()): what the action
+  // predictor, which learns which page is opened after what's typed,
+  // recommends for the default match. A prerender of it in the active tab,
+  // which opening it then shows at once, or a connection made ahead.
+  void Preload(const AutocompleteResult& result);
+  // Teaches the action predictor that what was typed led to `opened_url`, or
+  // to nothing (an empty URL: the edit ended), as Chrome's omnibox does
+  // (ChromeOmniboxClient::OnURLOpenedFromOmnibox(), OnRevert()).
+  void Learn(const GURL& opened_url);
 
   // What the omnibox reports for the active page (LocationBarModelImpl): the
   // NTP, about:blank, the home page, a results page of the default search

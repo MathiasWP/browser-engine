@@ -12,6 +12,10 @@
 #include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
 #include "chrome/browser/omnibox/autocomplete_controller_emitter_factory.h"
 #include "chrome/browser/omnibox/chrome_omnibox_navigation_observer_base.h"
+#include "chrome/browser/predictors/autocomplete_action_predictor.h"
+#include "chrome/browser/predictors/autocomplete_action_predictor_factory.h"
+#include "chrome/browser/predictors/loading_predictor.h"
+#include "chrome/browser/predictors/loading_predictor_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
@@ -33,9 +37,11 @@
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/search_engines/template_url_starter_pack_data.h"
+#include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/apple/url_conversions.h"
+#include "services/network/public/cpp/constants.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "url/gurl.h"
@@ -272,6 +278,9 @@ void BEAutocomplete::Stop() {
   if (!active_) {
     return;
   }
+  // Nothing was opened, unless Open() taught the predictor first (then it has
+  // nothing left to learn from).
+  Learn(GURL());
   // First: Stop() reports the cleared result before it returns, and the app
   // isn't told.
   active_ = false;
@@ -298,6 +307,12 @@ void BEAutocomplete::Open(size_t index, bool in_new_tab) {
     input = shown_input_;
   } else {
     return;
+  }
+
+  // Only from a list the user saw (AutocompleteActionPredictor::
+  // OnOmniboxOpenedUrl() learns nothing with the omnibox's popup closed).
+  if (!shown_matches_.empty()) {
+    Learn(match.destination_url);
   }
 
   BrowserWindowInterface* browser = browser_;
@@ -368,8 +383,61 @@ void BEAutocomplete::SendUpdate() {
                       inlineCompletion:inline_completion]];
     shown_matches_.push_back(match);
   }
+  Preload(result);
   // Last: the app may start, stop or open from inside.
   [window_ suggestionsDidUpdate:suggestions];
+}
+
+void BEAutocomplete::Preload(const AutocompleteResult& result) {
+  content::WebContents* contents =
+      browser_->GetTabStripModel()->GetActiveWebContents();
+  const AutocompleteMatch* match = result.default_match();
+  Profile* profile = browser_->GetProfile();
+  predictors::AutocompleteActionPredictor* predictor =
+      predictors::AutocompleteActionPredictorFactory::GetForProfile(profile);
+  if (!contents || !match || text_.empty() || !predictor) {
+    return;
+  }
+  predictor->RegisterTransitionalMatches(text_, result);
+  switch (predictor->RecommendAction(text_, *match, contents)) {
+    case predictors::AutocompleteActionPredictor::ACTION_PRERENDER:
+      // Not the page already shown, nor while DevTools is open in the tab
+      // (ChromeOmniboxClient::OnTextChanged(), DoPrerender()).
+      if (match->destination_url != contents->GetLastCommittedURL() &&
+          !AutocompleteMatch::IsSearchType(match->type) &&
+          !content::DevToolsAgentHost::IsDebuggerAttached(contents)) {
+        predictor->StartPrerendering(match->destination_url, *contents);
+      }
+      break;
+    case predictors::AutocompleteActionPredictor::ACTION_PRECONNECT:
+      // ChromeOmniboxClient::DoPreconnect().
+      if (match->destination_url.SchemeIs("chrome-extension")) {
+        break;
+      }
+      if (predictors::LoadingPredictor* loading_predictor =
+              predictors::LoadingPredictorFactory::GetForProfile(profile)) {
+        loading_predictor->PrepareForPageLoad(
+            /*initiator_origin=*/std::nullopt, match->destination_url,
+            predictors::HintOrigin::OMNIBOX,
+            network::GetNoOpNetworkRestrictionsId(),
+            predictors::AutocompleteActionPredictor::IsPreconnectable(*match));
+      }
+      break;
+    case predictors::AutocompleteActionPredictor::ACTION_NONE:
+      break;
+  }
+}
+
+void BEAutocomplete::Learn(const GURL& opened_url) {
+  predictors::AutocompleteActionPredictor* predictor =
+      predictors::AutocompleteActionPredictorFactory::GetForProfile(
+          browser_->GetProfile());
+  // Its database loads after startup; until then it neither learns nor
+  // recommends (AutocompleteActionPredictor::OnOmniboxOpenedUrl()).
+  if (!predictor || !predictor->initialized()) {
+    return;
+  }
+  predictor->UpdateDatabaseFromTransitionalMatches(opened_url);
 }
 
 metrics::OmniboxEventProto::PageClassification
