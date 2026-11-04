@@ -62,6 +62,7 @@ source_set("browser_engine") {
     "be_window.h",
     "be_window.mm",
     "public/BEEngine.h",
+    "public/BEEngineOptional.h",
   ]
 
   public_deps = [ ":hooks" ]
@@ -84,6 +85,7 @@ source_set("browser_engine") {
     "//chrome/browser/lifetime",
     "//chrome/browser/omnibox",
     "//chrome/browser/predictors",
+    "//chrome/browser/preloading",
     "//chrome/browser/profiles",
     "//chrome/browser/sessions",
     "//chrome/browser/ssl",

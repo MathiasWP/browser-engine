@@ -613,14 +613,26 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
 }
 
 - (void)loadURL:(NSURL*)url {
+  [self loadURL:url
+      transition:ui::PageTransitionFromInt(ui::PAGE_TRANSITION_TYPED |
+                                           ui::PAGE_TRANSITION_FROM_ADDRESS_BAR)];
+}
+
+// BETabPreloading: as Chrome's New Tab page opens a tile (MostVisitedHandler::
+// OnMostVisitedTileNavigation()), with the transition its prerender on
+// mouse-down was made with: a prerender activates only for the same one.
+- (void)loadURL:(NSURL*)url from:(BEPreloadSource)source {
+  [self loadURL:url
+      transition:ui::PageTransitionFromInt(ui::PAGE_TRANSITION_AUTO_BOOKMARK)];
+}
+
+- (void)loadURL:(NSURL*)url transition:(ui::PageTransition)transition {
   tabs::TabInterface* tab = [self tab];
   const GURL gurl = net::GURLWithNSURL(url);
   if (!tab || !gurl.is_valid()) {
     return;
   }
   content::WebContents* contents = tab->GetContents();
-  const ui::PageTransition transition = ui::PageTransitionFromInt(
-      ui::PAGE_TRANSITION_TYPED | ui::PAGE_TRANSITION_FROM_ADDRESS_BAR);
   if (BrowserWindowInterface* browser = tab->GetBrowserWindowInterface()) {
     // Through Chrome's navigator, as the omnibox does.
     NavigateParams params(browser, gurl, transition);

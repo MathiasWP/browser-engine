@@ -8,6 +8,7 @@
 #import <Foundation/Foundation.h>
 
 #import "browser_engine/public/BEEngine.h"
+#import "browser_engine/public/BEEngineOptional.h"
 
 namespace tabs {
 class TabInterface;
@@ -15,7 +16,7 @@ class TabInterface;
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface BEChromiumTab : NSObject <BETab>
+@interface BEChromiumTab : NSObject <BETab, BETabPreloading>
 
 // The object for `tab`, made the first time it's asked for.
 + (BEChromiumTab*)tabForTab:(tabs::TabInterface*)tab;

@@ -23,6 +23,11 @@
 #import "browser_engine/be_tab.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
+#include "chrome/browser/predictors/loading_predictor.h"
+#include "chrome/browser/predictors/loading_predictor_factory.h"
+#include "chrome/browser/preloading/bookmarkbar_preload/bookmarkbar_preload_pipeline_manager.h"
+#include "chrome/browser/preloading/chrome_preloading.h"
+#include "chrome/browser/preloading/new_tab_page_preload/new_tab_page_preload_pipeline_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/exit_type_service.h"
 #include "chrome/browser/sessions/session_restore.h"
@@ -39,6 +44,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_delegate.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
+#include "chrome/browser/ui/tabs/public/tab_features.h"
 #include "chrome/browser/ui/tabs/tab_strip_user_gesture_details.h"
 #include "components/tab_groups/tab_group_color.h"
 #include "components/tab_groups/tab_group_id.h"
@@ -46,6 +52,7 @@
 #include "components/tabs/public/tab_group.h"
 #include "components/tabs/public/tab_interface.h"
 #include "net/base/apple/url_conversions.h"
+#include "services/network/public/cpp/constants.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/base/window_open_disposition_utils.h"
@@ -881,6 +888,68 @@ int CommandIdForCommand(BECommand command) {
   const BookmarkBarController* controller =
       browser ? BookmarkBarController::From(browser) : nullptr;
   return controller && controller->bookmark_bar_state() == BookmarkBar::SHOW;
+}
+
+// BEWindowPreloading: what Chrome's bookmark buttons (BookmarkButton) and New
+// Tab page tiles (MostVisitedHandler) do for the page under the pointer, for
+// the app's own bookmarks bar and New Tab page.
+
+- (void)preconnectToURL:(NSURL*)url from:(BEPreloadSource)source {
+  // BookmarkButton::StartPreconnecting(), MostVisitedHandler::
+  // PreconnectMostVisitedTile().
+  BrowserWindowInterface* browser = [self browser];
+  const GURL gurl = net::GURLWithNSURL(url);
+  if (!browser || !gurl.SchemeIsHTTPOrHTTPS()) {
+    return;
+  }
+  if (predictors::LoadingPredictor* predictor =
+          predictors::LoadingPredictorFactory::GetForProfile(
+              browser->GetProfile())) {
+    predictor->PrepareForPageLoad(
+        /*initiator_origin=*/std::nullopt, gurl,
+        source == BEPreloadSourceBookmarkBar
+            ? predictors::HintOrigin::BOOKMARK_BAR
+            : predictors::HintOrigin::NEW_TAB_PAGE,
+        network::GetNoOpNetworkRestrictionsId(), /*preconnectable=*/true);
+  }
+}
+
+- (void)prerenderURL:(nullable NSURL*)url from:(BEPreloadSource)source {
+  TabStripModel* model = [self tabStripModel];
+  tabs::TabInterface* tab = model ? model->GetActiveTab() : nullptr;
+  if (!tab || !tab->GetTabFeatures()) {
+    return;
+  }
+  const GURL gurl = url ? net::GURLWithNSURL(url) : GURL();
+  // On mouse-down, and dropped as the pointer leaves (BookmarkButton::
+  // OnMousePressed(), OnMouseExited(); MostVisitedHandler::
+  // PrerenderMostVisitedTile(), CancelPrerender()). Chrome's pipelines check
+  // the preloading setting, and drop a prerender the next navigation doesn't
+  // use.
+  if (source == BEPreloadSourceBookmarkBar) {
+    BookmarkBarPreloadPipelineManager* manager =
+        tab->GetTabFeatures()->bookmarkbar_preload_pipeline_manager();
+    if (!manager) {
+      return;
+    }
+    if (gurl.SchemeIsHTTPOrHTTPS()) {
+      manager->StartPrerender(gurl);
+    } else {
+      manager->ResetPrerender();
+    }
+    return;
+  }
+  NewTabPagePreloadPipelineManager* manager =
+      tab->GetTabFeatures()->new_tab_page_preload_pipeline_manager();
+  if (!manager) {
+    return;
+  }
+  if (gurl.SchemeIsHTTPOrHTTPS()) {
+    manager->StartPrerender(gurl,
+                            chrome_preloading_predictor::kPointerDownOnNewTabPage);
+  } else {
+    manager->ResetPrerender();
+  }
 }
 
 - (void)openBookmark:(int64_t)identifier event:(NSEvent*)event {
