@@ -177,7 +177,10 @@ NSString* WarningForItem(const download::DownloadItem& item) {
   DownloadCommands commands(model.GetWeakPtr());
   _canPause = commands.IsCommandEnabled(DownloadCommands::PAUSE);
   _canResume = commands.IsCommandEnabled(DownloadCommands::RESUME);
-  _canRetry = !_canResume && commands.IsCommandEnabled(DownloadCommands::RETRY);
+  // Chrome enables Retry for any download; its bubble offers it only for one
+  // that stopped where it can't go on.
+  _canRetry = item.GetState() == download::DownloadItem::INTERRUPTED &&
+              !_canResume && commands.IsCommandEnabled(DownloadCommands::RETRY);
 }
 
 - (void)scheduleUpdate {
