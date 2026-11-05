@@ -1,9 +1,12 @@
 name: Retry a build that lost its runner
 
 # A release or dev-base build is a chain of 6-hour jobs. When GitHub loses a runner partway ("The
-# hosted runner lost communication with the server"), the run fails and a day's build waits for
-# someone to rerun it. This reruns the failed job, which resumes from the last finished job's
-# saved state, up to twice. A failure of the build itself (an error in a log) isn't retried.
+# hosted runner lost communication with the server"), or finds none for the next job ("The job was
+# not acquired by Runner of type hosted even after multiple attempts", which ends it cancelled, on
+# 4 Nov), or can't download the last job's saved state ("Artifact download failed after 5 retries",
+# the same day), the run fails and a day's build waits for someone to rerun it. This reruns the failed
+# job, which resumes from the last finished job's saved state, up to twice. A failure of the build
+# itself (an error in a log) isn't retried.
 
 on:
   workflow_run:
@@ -24,11 +27,11 @@ jobs:
     steps:
       - name: Rerun if a runner was lost
         run: |
-          failed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/jobs" --jq '.jobs[] | select(.conclusion == "failure") | .id')"
+          failed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/jobs?per_page=100" --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .id')"
           lost=no
           for job in $failed; do
             gh api "repos/$GITHUB_REPOSITORY/check-runs/$job/annotations" --jq '.[].message' |
-              grep -qiE 'lost communication with the server|runner has received a shutdown signal' && lost=yes
+              grep -qiE 'lost communication with the server|runner has received a shutdown signal|not acquired by runner|artifact download failed' && lost=yes
           done
           if [[ "$lost" == yes ]]; then
             gh run rerun "$RUN" --failed -R "$GITHUB_REPOSITORY"

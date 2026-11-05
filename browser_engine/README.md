@@ -8,8 +8,10 @@ in its place is `BEBrowserWindow`, Chrome's third production `BrowserWindow` aft
 `BrowserView` and Webium's `WebUIBrowserWindow`, whose shape it follows at M156.
 
 The app and the engine meet only in `public/BEEngine.h` (a verbatim copy of the app's
-`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 11). The framework exports
-one function, `BEEngineCreate`.
+`Sources/BrowserEngineAPI/include/BEEngine.h`; `BE_API_VERSION` 11) and `public/BEEngineOptional.h`
+(the same, for additions the app uses only where an engine has them, so adding one leaves
+`BE_API_VERSION` and the engines built for it alone; 4 Nov 2026). The framework exports one
+function, `BEEngineCreate`.
 
 First draft, 30 Oct 2026, against Chromium 156.0.8078.47. Nothing here has been compiled
 yet; the first CI run is the first compile (see "Risks for the first compile").

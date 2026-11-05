@@ -8,6 +8,7 @@
 #import <Foundation/Foundation.h>
 
 #import "browser_engine/public/BEEngine.h"
+#import "browser_engine/public/BEEngineOptional.h"
 
 class TabStripModelChange;
 struct TabStripSelectionChange;
@@ -22,7 +23,7 @@ class BEBrowserWindow;
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface BEChromiumWindow : NSObject <BEWindow>
+@interface BEChromiumWindow : NSObject <BEWindow, BEWindowPreloading>
 
 - (instancetype)initWithBrowserWindow:(browser_engine::BEBrowserWindow*)window
     NS_DESIGNATED_INITIALIZER;
