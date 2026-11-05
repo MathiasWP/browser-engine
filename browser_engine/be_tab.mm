@@ -289,6 +289,8 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   std::unique_ptr<browser_engine::TabObserver> _observer;
   std::unique_ptr<browser_engine::TabPasswordOffer> _passwordOffer;
   std::unique_ptr<browser_engine::TabInfobars> _infobars;
+  // While warm (setWarm:), the page's capture, which keeps it rendering.
+  std::optional<base::ScopedClosureRunner> _warm;
 }
 
 @synthesize delegate = _delegate;
@@ -335,6 +337,7 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
 }
 
 - (void)contentsDidChange {
+  _warm.reset();  // The old page's; the new one is warmed when asked again.
   _observer->StartObserving([self contents]);
   _infobars->StartObserving([self contents]);
   [self scheduleUpdate];
@@ -616,6 +619,22 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   [self loadURL:url
       transition:ui::PageTransitionFromInt(ui::PAGE_TRANSITION_TYPED |
                                            ui::PAGE_TRANSITION_FROM_ADDRESS_BAR)];
+}
+
+// BETabPreloading: a hidden page producing frames, as Chrome's tab hover cards
+// capture one (WebContents::IncrementCapturerCount(), staying hidden to the
+// page), so showing it has a fresh frame to show.
+- (void)setWarm:(BOOL)warm {
+  content::WebContents* contents = [self contents];
+  if (!warm || !contents) {
+    _warm.reset();
+    return;
+  }
+  if (!_warm) {
+    _warm = contents->IncrementCapturerCount(gfx::Size(), /*stay_hidden=*/true,
+                                             /*stay_awake=*/false,
+                                             /*is_activity=*/false);
+  }
 }
 
 // BETabPreloading: as Chrome's New Tab page opens a tile (MostVisitedHandler::
