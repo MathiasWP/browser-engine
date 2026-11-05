@@ -1,0 +1,32 @@
+# browser_engine touch point: inside the app, Memory Saver is on by default: tabs
+# left alone long enough sleep and reload when chosen, as on an 8 GB Mac that
+# would otherwise swap. Chrome's own default is off; the setting stays, and
+# Chrome still keeps awake tabs playing sound, typed into, pinned, sharing or
+# allowed to notify.
+
+diff --git a/components/performance_manager/user_tuning/prefs.cc b/components/performance_manager/user_tuning/prefs.cc
+--- a/components/performance_manager/user_tuning/prefs.cc
++++ b/components/performance_manager/user_tuning/prefs.cc
+@@ -12,6 +12,7 @@
+ 
+ #include "base/json/values_util.h"
+ #include "base/values.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "components/performance_manager/public/features.h"
+ #include "components/pref_registry/pref_registry_syncable.h"
+ #include "components/prefs/pref_registry_simple.h"
+@@ -31,8 +32,13 @@
+   registry->RegisterIntegerPref(
+       kMemorySaverModeTimeBeforeDiscardInMinutes,
+       kDefaultMemorySaverModeTimeBeforeDiscardInMinutes);
++  // browser_engine: inside the app, Memory Saver is on by default (Chrome's
++  // own default is off), at Chrome's medium aggressiveness. The setting stays.
+   registry->RegisterIntegerPref(
+-      kMemorySaverModeState, static_cast<int>(MemorySaverModeState::kDisabled));
++      kMemorySaverModeState,
++      static_cast<int>(browser_engine::IsEmbedded()
++                           ? MemorySaverModeState::kEnabled
++                           : MemorySaverModeState::kDisabled));
+   registry->RegisterIntegerPref(
+       kMemorySaverModeAggressiveness,
+       static_cast<int>(MemorySaverModeAggressiveness::kMedium));
