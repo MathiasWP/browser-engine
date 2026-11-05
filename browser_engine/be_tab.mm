@@ -192,6 +192,9 @@ class TabObserver : public content::WebContentsObserver,
     ScheduleUpdate();
   }
   void DidUpdateAudioMutingState(bool muted) override { ScheduleUpdate(); }
+  // Discarded in place (Memory Saver), the tab keeps its WebContents: the app
+  // hears of it here (isDiscarded), and of its reload as it starts loading.
+  void WasDiscarded() override { ScheduleUpdate(); }
   void WebContentsDestroyed() override {
     // The favicon driver, the bookmark helper, the zoom controller, the
     // audible helper and the distillability driver are WebContents user data;

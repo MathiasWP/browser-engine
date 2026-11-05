@@ -154,7 +154,8 @@ void OpenMatch(BrowserWindowInterface* browser,
                const AutocompleteMatch& match,
                const AutocompleteInput& input,
                WindowOpenDisposition disposition) {
-  if (IsTabSwitch(match)) {
+  // ⇧Return opens even an open tab's page in a new window.
+  if (IsTabSwitch(match) && disposition != WindowOpenDisposition::NEW_WINDOW) {
     // TabSwitchAction::Execute(): Navigate() finds the tab among the
     // profile's windows, selects it and shows its window, or opens the page
     // if the tab has gone since.
