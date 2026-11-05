@@ -35,7 +35,6 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
-#include "chrome/browser/spellchecker/spellcheck_factory.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface_iterator.h"
@@ -117,12 +116,6 @@ class EngineHooks : public Hooks {
       // Downloads of every profile our windows show, from its first window
       // on: the everyday profile, and a private window's own.
       downloads_.ObserveProfile(browser->GetProfile());
-      // Spelling, before the window's pages start: Chrome's service sets up
-      // only renderers started after it, and a page's right-click menu takes
-      // its suggested spellings from its renderer. Stock Chrome makes it as
-      // the profile starts (through the sync service's factory); here it was
-      // made on first use, after the pages, which then offered none.
-      SpellcheckServiceFactory::GetForContext(browser->GetProfile());
       window->OnBrowserInitialized();
     }
   }
