@@ -153,7 +153,7 @@ void OpenMatch(BrowserWindowInterface* browser,
                const std::u16string& text,
                const AutocompleteMatch& match,
                const AutocompleteInput& input,
-               bool in_new_tab) {
+               WindowOpenDisposition disposition) {
   if (IsTabSwitch(match)) {
     // TabSwitchAction::Execute(): Navigate() finds the tab among the
     // profile's windows, selects it and shows its window, or opens the page
@@ -170,8 +170,7 @@ void OpenMatch(BrowserWindowInterface* browser,
                         ui::PageTransitionFromInt(
                             match.transition |
                             ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
-  params.disposition = in_new_tab ? WindowOpenDisposition::NEW_FOREGROUND_TAB
-                                  : WindowOpenDisposition::CURRENT_TAB;
+  params.disposition = disposition;
   params.tabstrip_add_types =
       AddTabTypes::ADD_FORCE_INDEX | AddTabTypes::ADD_INHERIT_OPENER;
   // An address typed without a scheme that Chrome tries as https:// falls
@@ -193,13 +192,16 @@ void OpenMatch(BrowserWindowInterface* browser,
                                               match, AutocompleteMatch());
 }
 
-// Whether `text` starts with one of Chrome's starter-pack keywords ("@tabs",
-// "@history", "@bookmarks") and a space: where Chrome's omnibox enters keyword
-// mode by itself (OmniboxEditModel::MaybeAcceptKeywordBySpace()). Only these,
-// as the app shows no keyword chip and an "@" word means nothing else.
-bool IsStarterPackKeywordInput(const std::u16string& text, Profile* profile) {
+// Whether `text` starts with a search engine's keyword and a space: where
+// Chrome's omnibox enters keyword mode by itself
+// (OmniboxEditModel::MaybeAcceptKeywordBySpace()), so "bing.com harbour"
+// searches Bing, as Settings › Site search shortcuts says. The starter pack's
+// ("@tabs", "@history", "@bookmarks"), the built-in engines', and the user's
+// own once active (TemplateURL::CanBeUsedForKeywordMatching()). Not an
+// extension's, which Chrome hands to the extension (CanOpen()).
+bool IsKeywordInput(const std::u16string& text, Profile* profile) {
   const size_t space = text.find(u' ');
-  if (text.empty() || text[0] != u'@' || space == std::u16string::npos) {
+  if (text.empty() || space == 0 || space == std::u16string::npos) {
     return false;
   }
   TemplateURLService* service =
@@ -207,8 +209,9 @@ bool IsStarterPackKeywordInput(const std::u16string& text, Profile* profile) {
   const TemplateURL* template_url =
       service ? service->GetTemplateURLForKeyword(text.substr(0, space))
               : nullptr;
-  return template_url && template_url->starter_pack_id() !=
-                             template_url_starter_pack_data::StarterPackId::kNone;
+  return template_url &&
+         template_url->type() != TemplateURL::OMNIBOX_API_EXTENSION &&
+         template_url->CanBeUsedForKeywordMatching();
 }
 
 }  // namespace
@@ -254,8 +257,8 @@ void BEAutocomplete::Start(const std::u16string& text,
   shown_is_current_ = false;
 
   // As OmniboxEditModel::StartAutocomplete(), with the page and https-first
-  // setting ChromeOmniboxClient gives it; in keyword mode only for a
-  // starter-pack keyword.
+  // setting ChromeOmniboxClient gives it; in keyword mode after a search
+  // engine's keyword and a space (IsKeywordInput()).
   AutocompleteInput input(
       text, text.length(), GetPageClassification(), scheme_classifier_,
       base::FeatureList::IsEnabled(omnibox::kDefaultTypedNavigationsToHttps));
@@ -265,8 +268,7 @@ void BEAutocomplete::Start(const std::u16string& text,
     input.set_current_title(contents->GetTitle());
   }
   input.set_prevent_inline_autocomplete(!allow_inline_completion);
-  const bool keyword_mode =
-      IsStarterPackKeywordInput(text, browser_->GetProfile());
+  const bool keyword_mode = IsKeywordInput(text, browser_->GetProfile());
   input.set_allow_exact_keyword_match(keyword_mode);
   input.set_in_keyword_mode(keyword_mode);
   input.set_omit_asynchronous_matches(false);
@@ -291,7 +293,7 @@ void BEAutocomplete::Stop() {
   controller_->Stop(AutocompleteStopReason::kClobbered);
 }
 
-void BEAutocomplete::Open(size_t index, bool in_new_tab) {
+void BEAutocomplete::Open(size_t index, WindowOpenDisposition disposition) {
   if (!active_) {
     return;
   }
@@ -320,7 +322,7 @@ void BEAutocomplete::Open(size_t index, bool in_new_tab) {
   // The omnibox's edit ends as it opens a match (OmniboxEditModel::OpenMatch()
   // reverts it).
   Stop();
-  OpenMatch(browser, text, match, input, in_new_tab);
+  OpenMatch(browser, text, match, input, disposition);
 }
 
 void BEAutocomplete::OnResultChanged(AutocompleteController* controller,

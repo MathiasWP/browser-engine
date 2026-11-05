@@ -28,6 +28,36 @@ NS_SWIFT_UI_ACTOR
 - (void)prerenderURL:(nullable NSURL *)url from:(BEPreloadSource)source;
 @end
 
+/// A page saved to read later: Chrome's reading list, the window's profile's. (5 Nov 2026.)
+NS_SWIFT_UI_ACTOR
+@protocol BEReadingListItem <NSObject>
+@property (nonatomic, readonly, copy) NSURL *url;
+@property (nonatomic, readonly, copy) NSString *title;
+@property (nonatomic, readonly) BOOL isRead;
+@property (nonatomic, readonly, copy) NSDate *added;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowReadingList <NSObject>
+@optional
+/// The window's profile's reading list, newest first; empty until Chrome has loaded it (it's
+/// read as a menu opens, so nothing is sent as it changes). Chrome's tab menu adds to it too.
+@property (nonatomic, readonly, copy) NSArray<id<BEReadingListItem>> *readingListItems;
+/// Whether `url` can go on the list (Chrome's: web pages).
+- (BOOL)canAddToReadingList:(NSURL *)url;
+- (void)addToReadingList:(NSURL *)url title:(NSString *)title;
+- (void)setReadingListItem:(NSURL *)url read:(BOOL)read;
+- (void)removeFromReadingList:(NSURL *)url;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowOpening <NSObject>
+@optional
+/// Opens the suggestion at `index` of the last update in a new window, as ⇧Return does in
+/// Chrome's omnibox. (5 Nov 2026.)
+- (void)openSuggestionInNewWindowAtIndex:(NSInteger)index;
+@end
+
 NS_SWIFT_UI_ACTOR
 @protocol BETabPreloading <NSObject>
 @optional
