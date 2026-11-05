@@ -144,6 +144,7 @@ source_set("browser_engine") {
     "//components/password_manager/core/browser:password_form",
     "//components/password_manager/core/common",
     "//components/prefs",
+    "//components/reading_list/core",
     "//components/remote_cocoa/app_shim",
     "//components/search_engines",
     "//components/security_state/core",

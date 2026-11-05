@@ -23,7 +23,8 @@ class BEBrowserWindow;
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface BEChromiumWindow : NSObject <BEWindow, BEWindowPreloading>
+@interface BEChromiumWindow
+    : NSObject <BEWindow, BEWindowPreloading, BEWindowReadingList, BEWindowOpening>
 
 - (instancetype)initWithBrowserWindow:(browser_engine::BEBrowserWindow*)window
     NS_DESIGNATED_INITIALIZER;

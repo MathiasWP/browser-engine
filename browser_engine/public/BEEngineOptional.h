@@ -28,6 +28,68 @@ NS_SWIFT_UI_ACTOR
 - (void)prerenderURL:(nullable NSURL *)url from:(BEPreloadSource)source;
 @end
 
+/// A page saved to read later: Chrome's reading list, the window's profile's. (5 Nov 2026.)
+NS_SWIFT_UI_ACTOR
+@protocol BEReadingListItem <NSObject>
+@property (nonatomic, readonly, copy) NSURL *url;
+@property (nonatomic, readonly, copy) NSString *title;
+@property (nonatomic, readonly) BOOL isRead;
+@property (nonatomic, readonly, copy) NSDate *added;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowReadingList <NSObject>
+@optional
+/// The window's profile's reading list, newest first; empty until Chrome has loaded it (it's
+/// read as a menu opens, so nothing is sent as it changes). Chrome's tab menu adds to it too.
+@property (nonatomic, readonly, copy) NSArray<id<BEReadingListItem>> *readingListItems;
+/// Whether `url` can go on the list (Chrome's: web pages).
+- (BOOL)canAddToReadingList:(NSURL *)url;
+- (void)addToReadingList:(NSURL *)url title:(NSString *)title;
+- (void)setReadingListItem:(NSURL *)url read:(BOOL)read;
+- (void)removeFromReadingList:(NSURL *)url;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowOpening <NSObject>
+@optional
+/// Opens the suggestion at `index` of the last update in a new window, as ⇧Return does in
+/// Chrome's omnibox. (5 Nov 2026.)
+- (void)openSuggestionInNewWindowAtIndex:(NSInteger)index;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BESuggestionKeyword <NSObject>
+/// The site search Tab starts from this suggestion, as in Chrome's omnibox (its
+/// `associated_keyword`): typing the keyword and a space searches the site. Empty for none.
+/// (5 Nov 2026.)
+@property (nonatomic, readonly, copy) NSString *keyword;
+/// The site search's name ("Wikipedia").
+@property (nonatomic, readonly, copy) NSString *keywordName;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEDownloadProfile <NSObject>
+/// The profile that downloads it, as `BEWindow.profileIdentifier` names it (a private window's
+/// downloads name the profile it's private from), so each profile's windows list their own.
+/// (5 Nov 2026.)
+@property (nonatomic, readonly, copy) NSString *profileIdentifier;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEDownloadControl <NSObject>
+/// Paused by the user, until `resume`. (5 Nov 2026.)
+@property (nonatomic, readonly) BOOL isPaused;
+/// What Chrome's download bubble offers now: Pause while it runs, Resume while paused or
+/// interrupted where Chrome can go on, Retry where it can't and fetches the file again.
+@property (nonatomic, readonly) BOOL canPause;
+@property (nonatomic, readonly) BOOL canResume;
+@property (nonatomic, readonly) BOOL canRetry;
+- (void)pause;
+- (void)resume;
+- (void)retry;
+@end
+
 NS_SWIFT_UI_ACTOR
 @protocol BETabPreloading <NSObject>
 @optional
