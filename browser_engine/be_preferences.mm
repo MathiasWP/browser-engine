@@ -14,6 +14,8 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
+#include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
 
 namespace browser_engine {
@@ -44,6 +46,30 @@ PrefService* PrefServiceFor(const std::string& name) {
   PrefService* local_state = g_browser_process->local_state();
   return local_state && local_state->FindPreference(name) ? local_state
                                                           : nullptr;
+}
+
+// After a preference is written: those Chrome puts into effect only as its
+// own settings page sets them, not as the preference changes, put into effect
+// the same way. The default page zoom (Settings › Appearance › Page zoom) goes
+// through ChromeZoomLevelPrefs, which tells the profile's zoom map.
+void ApplyPreference(const std::string& name,
+                     PrefService* prefs,
+                     bool cleared) {
+  if (name != prefs::kPartitionDefaultZoomLevel) {
+    return;
+  }
+  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  ChromeZoomLevelPrefs* zoom = profile && profile->GetPrefs() == prefs
+                                   ? profile->GetZoomLevelPrefs()
+                                   : nullptr;
+  if (!zoom) {
+    return;
+  }
+  zoom->SetDefaultZoomLevelPref(zoom->GetDefaultZoomLevelPref());
+  // Setting it writes it; put back to its default, it stays unchanged.
+  if (cleared) {
+    prefs->ClearPref(name);
+  }
 }
 
 const PrefService::Preference* FindPreference(NSString* name) {
@@ -229,6 +255,7 @@ BOOL Refuse(NSError** error, ErrorCode code, NSString* reason) {
   }
   if (!value) {
     prefs->ClearPref(pref_name);
+    browser_engine::ApplyPreference(pref_name, prefs, /*cleared=*/true);
     return YES;
   }
 
@@ -256,6 +283,7 @@ BOOL Refuse(NSError** error, ErrorCode code, NSString* reason) {
                              browser_engine::TypeName(new_value->type())]);
   }
   prefs->Set(pref_name, *new_value);
+  browser_engine::ApplyPreference(pref_name, prefs, /*cleared=*/false);
   return YES;
 }
 
