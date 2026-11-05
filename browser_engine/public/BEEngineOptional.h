@@ -59,6 +59,14 @@ NS_SWIFT_UI_ACTOR
 @end
 
 NS_SWIFT_UI_ACTOR
+@protocol BEDownloadProfile <NSObject>
+/// The profile that downloads it, as `BEWindow.profileIdentifier` names it (a private window's
+/// downloads name the profile it's private from), so each profile's windows list their own.
+/// (5 Nov 2026.)
+@property (nonatomic, readonly, copy) NSString *profileIdentifier;
+@end
+
+NS_SWIFT_UI_ACTOR
 @protocol BETabPreloading <NSObject>
 @optional
 /// Opens `url` as a link chosen from `source`: a bookmark navigation, as Chrome's New Tab page

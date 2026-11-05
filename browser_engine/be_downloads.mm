@@ -13,6 +13,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #import "browser_engine/be_engine.h"
+#import "browser_engine/public/BEEngineOptional.h"
 #include "chrome/browser/download/download_commands.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/profiles/profile.h"
@@ -32,7 +33,7 @@ NS_ASSUME_NONNULL_BEGIN
 // One download as the app reads it: the item as of the last update the app
 // was sent (or is about to be), so it doesn't change between updates, and
 // keeps the item's last state once the item is gone.
-@interface BEChromiumDownload : NSObject <BEDownload>
+@interface BEChromiumDownload : NSObject <BEDownload, BEDownloadProfile>
 - (instancetype)initWithItem:(download::DownloadItem*)item
     NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
@@ -122,6 +123,7 @@ NSString* WarningForItem(const download::DownloadItem& item) {
 
 @synthesize identifier = _identifier;
 @synthesize isPrivate = _isPrivate;
+@synthesize profileIdentifier = _profileIdentifier;
 @synthesize sourceURL = _sourceURL;
 @synthesize fileURL = _fileURL;
 @synthesize receivedBytes = _receivedBytes;
@@ -137,6 +139,12 @@ NSString* WarningForItem(const download::DownloadItem& item) {
     content::BrowserContext* context =
         content::DownloadItemUtils::GetBrowserContext(item);
     _isPrivate = context && context->IsOffTheRecord();
+    // As BEChromiumWindow's profileIdentifier: the profile folder's name.
+    Profile* profile = context ? Profile::FromBrowserContext(context) : nullptr;
+    _profileIdentifier =
+        profile ? base::SysUTF8ToNSString(
+                      profile->GetOriginalProfile()->GetPath().BaseName().value())
+                : @"";
     [self readItem];
   }
   return self;
