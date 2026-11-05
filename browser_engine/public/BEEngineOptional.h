@@ -77,6 +77,20 @@ NS_SWIFT_UI_ACTOR
 @end
 
 NS_SWIFT_UI_ACTOR
+@protocol BEDownloadControl <NSObject>
+/// Paused by the user, until `resume`. (5 Nov 2026.)
+@property (nonatomic, readonly) BOOL isPaused;
+/// What Chrome's download bubble offers now: Pause while it runs, Resume while paused or
+/// interrupted where Chrome can go on, Retry where it can't and fetches the file again.
+@property (nonatomic, readonly) BOOL canPause;
+@property (nonatomic, readonly) BOOL canResume;
+@property (nonatomic, readonly) BOOL canRetry;
+- (void)pause;
+- (void)resume;
+- (void)retry;
+@end
+
+NS_SWIFT_UI_ACTOR
 @protocol BETabPreloading <NSObject>
 @optional
 /// Opens `url` as a link chosen from `source`: a bookmark navigation, as Chrome's New Tab page

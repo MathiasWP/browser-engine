@@ -33,7 +33,8 @@ NS_ASSUME_NONNULL_BEGIN
 // One download as the app reads it: the item as of the last update the app
 // was sent (or is about to be), so it doesn't change between updates, and
 // keeps the item's last state once the item is gone.
-@interface BEChromiumDownload : NSObject <BEDownload, BEDownloadProfile>
+@interface BEChromiumDownload
+    : NSObject <BEDownload, BEDownloadProfile, BEDownloadControl>
 - (instancetype)initWithItem:(download::DownloadItem*)item
     NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
@@ -131,6 +132,10 @@ NSString* WarningForItem(const download::DownloadItem& item) {
 @synthesize state = _state;
 @synthesize needsApproval = _needsApproval;
 @synthesize warning = _warning;
+@synthesize isPaused = _isPaused;
+@synthesize canPause = _canPause;
+@synthesize canResume = _canResume;
+@synthesize canRetry = _canRetry;
 
 - (instancetype)initWithItem:(download::DownloadItem*)item {
   if ((self = [super init])) {
@@ -141,10 +146,9 @@ NSString* WarningForItem(const download::DownloadItem& item) {
     _isPrivate = context && context->IsOffTheRecord();
     // As BEChromiumWindow's profileIdentifier: the profile folder's name.
     Profile* profile = context ? Profile::FromBrowserContext(context) : nullptr;
-    _profileIdentifier =
-        profile ? base::SysUTF8ToNSString(
-                      profile->GetOriginalProfile()->GetPath().BaseName().value())
-                : @"";
+    const base::FilePath folder =
+        profile ? profile->GetOriginalProfile()->GetPath() : base::FilePath();
+    _profileIdentifier = base::SysUTF8ToNSString(folder.BaseName().value());
     [self readItem];
   }
   return self;
@@ -166,6 +170,14 @@ NSString* WarningForItem(const download::DownloadItem& item) {
   _state = StateOfItem(item);
   _needsApproval = NeedsApproval(item);
   _warning = _needsApproval ? WarningForItem(item) : @"";
+  _isPaused = item.IsPaused();
+  // As Chrome's download bubble offers them (DownloadUIModel::
+  // IsCommandEnabled()).
+  DownloadItemModel model(_item);
+  DownloadCommands commands(model.GetWeakPtr());
+  _canPause = commands.IsCommandEnabled(DownloadCommands::PAUSE);
+  _canResume = commands.IsCommandEnabled(DownloadCommands::RESUME);
+  _canRetry = !_canResume && commands.IsCommandEnabled(DownloadCommands::RETRY);
 }
 
 - (void)scheduleUpdate {
@@ -228,6 +240,31 @@ NSString* WarningForItem(const download::DownloadItem& item) {
   }
   if (!_item->IsDone()) {
     _item->Cancel(/*user_cancel=*/true);
+  }
+}
+
+// MARK: BEDownloadControl
+
+- (void)pause {
+  [self runCommand:DownloadCommands::PAUSE];
+}
+
+- (void)resume {
+  [self runCommand:DownloadCommands::RESUME];
+}
+
+- (void)retry {
+  [self runCommand:DownloadCommands::RETRY];
+}
+
+- (void)runCommand:(DownloadCommands::Command)command {
+  if (!_item) {
+    return;
+  }
+  DownloadItemModel model(_item);
+  DownloadCommands commands(model.GetWeakPtr());
+  if (commands.IsCommandEnabled(command)) {
+    commands.ExecuteCommand(command);
   }
 }
 
