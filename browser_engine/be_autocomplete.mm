@@ -49,12 +49,14 @@
 NS_ASSUME_NONNULL_BEGIN
 
 // One suggestion as the app reads it: a copy, which doesn't change.
-@interface BEChromiumSuggestion : NSObject <BESuggestion>
+@interface BEChromiumSuggestion : NSObject <BESuggestion, BESuggestionKeyword>
 - (instancetype)initWithKind:(BESuggestionKind)kind
                         text:(NSString*)text
                       detail:(NSString*)detail
                          url:(NSURL*)url
             inlineCompletion:(NSString*)inlineCompletion
+                     keyword:(NSString*)keyword
+                 keywordName:(NSString*)keywordName
     NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 @end
@@ -68,18 +70,24 @@ NS_ASSUME_NONNULL_END
 @synthesize detail = _detail;
 @synthesize url = _url;
 @synthesize inlineCompletion = _inlineCompletion;
+@synthesize keyword = _keyword;
+@synthesize keywordName = _keywordName;
 
 - (instancetype)initWithKind:(BESuggestionKind)kind
                         text:(NSString*)text
                       detail:(NSString*)detail
                          url:(NSURL*)url
-            inlineCompletion:(NSString*)inlineCompletion {
+            inlineCompletion:(NSString*)inlineCompletion
+                     keyword:(NSString*)keyword
+                 keywordName:(NSString*)keywordName {
   if ((self = [super init])) {
     _kind = kind;
     _text = [text copy];
     _detail = [detail copy];
     _url = [url copy];
     _inlineCompletion = [inlineCompletion copy];
+    _keyword = [keyword copy];
+    _keywordName = [keywordName copy];
   }
   return self;
 }
@@ -377,13 +385,30 @@ void BEAutocomplete::SendUpdate() {
         &match == result.default_match()
             ? base::SysUTF16ToNSString(match.inline_autocompletion)
             : @"";
+    // The site search Tab starts from this match: Chrome's controller gives
+    // a match whose site has a search engine its keyword
+    // (AutocompleteController::UpdateAssociatedKeywords()). Only one that
+    // typed with a space starts a keyword search (IsKeywordInput()).
+    std::u16string keyword;
+    std::u16string keyword_name;
+    if (!match.associated_keyword.empty() && template_url_service) {
+      const TemplateURL* site = template_url_service->GetTemplateURLForKeyword(
+          match.associated_keyword);
+      if (site && site->type() != TemplateURL::OMNIBOX_API_EXTENSION &&
+          site->CanBeUsedForKeywordMatching()) {
+        keyword = match.associated_keyword;
+        keyword_name = site->short_name();
+      }
+    }
     [suggestions
         addObject:[[BEChromiumSuggestion alloc]
                           initWithKind:kind
                                   text:base::SysUTF16ToNSString(match.contents)
                                 detail:base::SysUTF16ToNSString(detail)
                                    url:url
-                      inlineCompletion:inline_completion]];
+                      inlineCompletion:inline_completion
+                               keyword:base::SysUTF16ToNSString(keyword)
+                           keywordName:base::SysUTF16ToNSString(keyword_name)]];
     shown_matches_.push_back(match);
   }
   Preload(result);

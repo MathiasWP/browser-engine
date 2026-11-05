@@ -59,6 +59,16 @@ NS_SWIFT_UI_ACTOR
 @end
 
 NS_SWIFT_UI_ACTOR
+@protocol BESuggestionKeyword <NSObject>
+/// The site search Tab starts from this suggestion, as in Chrome's omnibox (its
+/// `associated_keyword`): typing the keyword and a space searches the site. Empty for none.
+/// (5 Nov 2026.)
+@property (nonatomic, readonly, copy) NSString *keyword;
+/// The site search's name ("Wikipedia").
+@property (nonatomic, readonly, copy) NSString *keywordName;
+@end
+
+NS_SWIFT_UI_ACTOR
 @protocol BEDownloadProfile <NSObject>
 /// The profile that downloads it, as `BEWindow.profileIdentifier` names it (a private window's
 /// downloads name the profile it's private from), so each profile's windows list their own.
