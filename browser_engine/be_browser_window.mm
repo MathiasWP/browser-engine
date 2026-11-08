@@ -1,6 +1,9 @@
+#include "base/strings/sys_string_conversions.h"
 #include "browser_engine/be_browser_window.h"
 
 #import <AppKit/AppKit.h>
+
+#include <memory>
 
 #include <utility>
 #include <vector>
@@ -13,11 +16,13 @@
 #import "browser_engine/be_bubble_anchor.h"
 #import "browser_engine/be_engine.h"
 #import "browser_engine/be_extensions.h"
+#import "browser_engine/be_find_bar.h"
 #import "browser_engine/be_site_settings.h"
 #import "browser_engine/be_tab.h"
 #import "browser_engine/be_window.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
+#include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/devtools/devtools_ui_controller.h"
 #include "chrome/browser/global_keyboard_shortcuts_mac.h"
 #include "chrome/browser/profiles/profile.h"
@@ -47,6 +52,8 @@
 #include "chrome/browser/ui/views/interaction/browser_elements_views_impl.h"
 #include "chrome/browser/ui/views/tabs/groups/tab_group_editor_bubble_view.h"
 #include "chrome/browser/ui/window_metadata/window_metadata_controller.h"
+#include "components/bookmarks/browser/bookmark_model.h"
+#include "components/bookmarks/browser/bookmark_node.h"
 #include "components/input/native_web_keyboard_event.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "components/tab_groups/tab_group_visual_data.h"
@@ -55,6 +62,7 @@
 #include "content/public/browser/eye_dropper.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/browser/web_contents.h"
+#include "net/base/apple/url_conversions.h"
 #include "ui/base/accelerators/global_accelerator_listener/global_accelerator_listener.h"
 #include "ui/base/emoji/emoji_panel_helper.h"
 #include "ui/content_accelerators/accelerator_util.h"
@@ -714,6 +722,26 @@ void BEBrowserWindow::ShowTabGroupEditor(const tab_groups::TabGroupId& group,
 
 void BEBrowserWindow::ShowBookmarkBubble(const GURL& url,
                                          bool already_bookmarked) {
+  // The app's own star popover, for the bookmark just made (or already
+  // there): chrome::BookmarkCurrentTab() added it before asking.
+  bookmarks::BookmarkModel* model =
+      BookmarkModelFactory::GetForBrowserContext(browser_->GetProfile());
+  if (const bookmarks::BookmarkNode* node =
+          model ? model->GetMostRecentlyAddedUserNodeForURL(url) : nullptr) {
+    BEChromiumBookmarkEditRequest* request =
+        [[BEChromiumBookmarkEditRequest alloc]
+            initWithKind:BEBookmarkEditKindBookmarked
+                bookmark:node->id()
+                  folder:node->parent()->id()
+                   index:-1
+                     url:net::NSURLWithGURL(url)
+                   title:base::SysUTF16ToNSString(node->GetTitle())
+                    urls:@[]
+               urlTitles:@[]];
+    if ([objc_window_ showBookmarkEditor:request]) {
+      return;
+    }
+  }
   content::WebContents* contents =
       browser_->GetTabStripModel()->GetActiveWebContents();
   views::BubbleAnchor anchor = GetAddressFieldAnchor();
@@ -744,6 +772,23 @@ void BEBrowserWindow::ConfirmBrowserCloseWithPendingDownloads(
     int download_count,
     DownloadCloseType dialog_type,
     base::OnceCallback<void(bool)> callback) {
+  // The app's own question when it asks one. The callback runs once: the
+  // block holds it until the app answers.
+  auto shared = std::make_shared<base::OnceCallback<void(bool)>>(
+      std::move(callback));
+  const BOOL asked = [objc_window_
+      confirmClosingWithDownloads:download_count
+                         quitting:dialog_type ==
+                                  DownloadCloseType::kBrowserShutdown
+                       completion:^(BOOL close_anyway) {
+                         if (*shared) {
+                           std::move(*shared).Run(close_anyway);
+                         }
+                       }];
+  if (asked) {
+    return;
+  }
+  callback = std::move(*shared);
   // Chrome's own Views dialog, parented to our NSWindow, as BrowserView does.
   // It runs `callback` (true: cancel the downloads and close).
   DownloadInProgressDialogView::Show(GetNativeWindow(), download_count,
@@ -814,7 +859,11 @@ bool BEBrowserWindow::HandleKeyboardEvent(
 }
 
 std::unique_ptr<FindBar> BEBrowserWindow::CreateFindBar() {
-  // Chrome's Views find bar over the page, owned by `find_bar_owner_`.
+  // The app's own find bar when it draws one; else Chrome's Views find bar
+  // over the page, owned by `find_bar_owner_`.
+  if ([objc_window_ drawsFindBar]) {
+    return std::make_unique<BEFindBar>(this);
+  }
   return std::make_unique<FindBarHost>(FindBarOwner::From(browser_));
 }
 

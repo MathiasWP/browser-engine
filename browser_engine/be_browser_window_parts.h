@@ -13,6 +13,7 @@
 #include <string>
 
 #include "base/memory/raw_ptr.h"
+#include "base/timer/timer.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/task/cancelable_task_tracker.h"
@@ -130,7 +131,17 @@ class BEExclusiveAccessContext : public ExclusiveAccessContext,
   void DestroyAnyExclusiveAccessBubble() override;
 
  private:
+  // The app's own notice, when it shows one: true if it took the update.
+  bool UpdateAppNotice(const ExclusiveAccessBubbleParams& params,
+                       ExclusiveAccessBubbleHideCallback& first_hide_callback);
+  // Hides it, and runs its hide callback with `reason`.
+  void HideAppNotice(ExclusiveAccessBubbleHideReason reason);
+
   const raw_ptr<BEBrowserWindow> window_;
+  // The app's notice: shown for ExclusiveAccessBubble::kShowTime, as Chrome's.
+  bool app_notice_shown_ = false;
+  ExclusiveAccessBubbleHideCallback app_hide_callback_;
+  base::OneShotTimer app_notice_timer_;
   std::unique_ptr<ExclusiveAccessBubbleViews> exclusive_access_bubble_;
   base::CancelableTaskTracker exclusive_access_bubble_cancelable_task_tracker_;
   std::optional<base::CancelableTaskTracker::TaskId>

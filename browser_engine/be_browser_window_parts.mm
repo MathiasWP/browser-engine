@@ -1,3 +1,4 @@
+#include "base/strings/sys_string_conversions.h"
 #include "browser_engine/be_browser_window_parts.h"
 
 #include <utility>
@@ -7,10 +8,13 @@
 #include "base/strings/escape.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_engine/be_browser_window.h"
+#import "browser_engine/be_window.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/global_browser_collection.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_bubble.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_bubble_type.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
 #include "chrome/browser/ui/fullscreen/browser_window_fullscreen_controller.h"
@@ -192,7 +196,14 @@ LocationBarTesting* BELocationBar::GetLocationBarForTesting() {
 BEExclusiveAccessContext::BEExclusiveAccessContext(BEBrowserWindow* window)
     : window_(window) {}
 
-BEExclusiveAccessContext::~BEExclusiveAccessContext() = default;
+BEExclusiveAccessContext::~BEExclusiveAccessContext() {
+  // As Chrome's bubble when it goes: its hide callback runs once.
+  app_notice_timer_.Stop();
+  if (app_hide_callback_) {
+    std::move(app_hide_callback_)
+        .Run(ExclusiveAccessBubbleHideReason::kInterrupted);
+  }
+}
 
 Profile* BEExclusiveAccessContext::GetProfile() {
   return window_->browser()->GetProfile();
@@ -227,9 +238,64 @@ void BEExclusiveAccessContext::ExitFullscreen() {
   window_->ProcessFullscreen(false, display::kInvalidDisplayId);
 }
 
+bool BEExclusiveAccessContext::UpdateAppNotice(
+    const ExclusiveAccessBubbleParams& params,
+    ExclusiveAccessBubbleHideCallback& first_hide_callback) {
+  // TYPE_NONE without a download closes the notice.
+  if (!params.has_download &&
+      params.type == EXCLUSIVE_ACCESS_BUBBLE_TYPE_NONE) {
+    if (!app_notice_shown_) {
+      return false;  // Chrome's bubble, if there's one, closes as before.
+    }
+    if (first_hide_callback) {
+      std::move(first_hide_callback)
+          .Run(ExclusiveAccessBubbleHideReason::kNotShown);
+    }
+    HideAppNotice(ExclusiveAccessBubbleHideReason::kInterrupted);
+    return true;
+  }
+  // The key between bars, as Chrome's bubble styles it: "Press |Esc| to exit
+  // full screen".
+  NSString* text =
+      base::SysUTF16ToNSString(exclusive_access_bubble::GetInstructionTextForType(
+          params.type, u"Esc", std::nullopt, params.has_download,
+          /*notify_overridden=*/false));
+  if (![window_->objc_window() showFullscreenNotice:text]) {
+    return false;
+  }
+  if (app_hide_callback_) {
+    std::move(app_hide_callback_)
+        .Run(ExclusiveAccessBubbleHideReason::kInterrupted);
+  }
+  app_hide_callback_ = std::move(first_hide_callback);
+  app_notice_shown_ = true;
+  app_notice_timer_.Start(
+      FROM_HERE, ExclusiveAccessBubble::kShowTime,
+      base::BindOnce(&BEExclusiveAccessContext::HideAppNotice,
+                     base::Unretained(this),
+                     ExclusiveAccessBubbleHideReason::kTimeout));
+  return true;
+}
+
+void BEExclusiveAccessContext::HideAppNotice(
+    ExclusiveAccessBubbleHideReason reason) {
+  app_notice_timer_.Stop();
+  if (!app_notice_shown_) {
+    return;
+  }
+  app_notice_shown_ = false;
+  [window_->objc_window() showFullscreenNotice:@""];
+  if (app_hide_callback_) {
+    std::move(app_hide_callback_).Run(reason);
+  }
+}
+
 void BEExclusiveAccessContext::UpdateExclusiveAccessBubble(
     const ExclusiveAccessBubbleParams& params,
     ExclusiveAccessBubbleHideCallback first_hide_callback) {
+  if (UpdateAppNotice(params, first_hide_callback)) {
+    return;
+  }
   // Copied from WebUIBrowserExclusiveAccessContext.
   bool should_close_bubble = false;
   if (!params.has_download) {
@@ -276,8 +342,9 @@ void BEExclusiveAccessContext::UpdateExclusiveAccessBubble(
 }
 
 bool BEExclusiveAccessContext::IsExclusiveAccessBubbleDisplayed() const {
-  return exclusive_access_bubble_ && (exclusive_access_bubble_->IsShowing() ||
-                                      exclusive_access_bubble_->IsVisible());
+  return app_notice_shown_ ||
+         (exclusive_access_bubble_ && (exclusive_access_bubble_->IsShowing() ||
+                                       exclusive_access_bubble_->IsVisible()));
 }
 
 void BEExclusiveAccessContext::OnExclusiveAccessUserInput() {

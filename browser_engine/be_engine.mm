@@ -23,6 +23,8 @@
 #import "browser_engine/be_closed.h"
 #include "browser_engine/be_downloads.h"
 #import "browser_engine/be_most_visited.h"
+#import "browser_engine/be_palette.h"
+#import "browser_engine/public/BEEngineOptional.h"
 #import "browser_engine/be_preferences.h"
 #import "browser_engine/be_profiles.h"
 #import "browser_engine/be_visited.h"
@@ -62,7 +64,7 @@
 // declares it; chrome_exe_main_mac.cc finds it with dlsym().
 extern "C" int ChromeMain(int argc, const char** argv);
 
-@interface BEChromiumEngine : NSObject <BEEngine>
+@interface BEChromiumEngine : NSObject <BEEngine, BEEnginePalette>
 // The app's delegate while Chromium runs.
 @property(nonatomic, readonly, nullable) id<BEEngineDelegate> delegate;
 // From the hooks: the main loop runs and startup has made its windows.
@@ -134,6 +136,9 @@ class EngineHooks : public Hooks {
   }
 
   void PreCreateThreads() override {
+    // After Chrome's colour mixers (ToolkitInitialized), before any window.
+    browser_engine::InstallPaletteMixer();
+
     // AppController's keep-alive: on the Mac the browser keeps running with
     // no windows open, until the user quits.
     keep_alive_ = std::make_unique<ScopedKeepAlive>(
@@ -480,6 +485,11 @@ void OnWindowActivated() {
           browser_engine::Watch(_mostVisited, [self everydayProfile])) {
     mostVisited->SetRemoved(net::GURLWithNSURL(url), removed);
   }
+}
+
+// BEEnginePalette.
+- (void)setPalette:(NSDictionary<NSString*, NSColor*>*)palette {
+  browser_engine::SetPalette(palette);
 }
 
 - (id<BEPreferences>)preferences {
