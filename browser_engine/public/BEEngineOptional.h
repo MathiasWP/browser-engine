@@ -266,4 +266,126 @@ NS_SWIFT_UI_ACTOR
 - (BOOL)window:(id<BEWindow>)window showFullscreenNotice:(NSString *)text;
 @end
 
+// MARK: Our own UI in place of Chrome's, second batch (9 Nov 2026)
+
+/// A page in history as Chrome's history page lists it: one entry per address and day, at the
+/// page's latest visit that day.
+NS_SWIFT_UI_ACTOR
+@protocol BEHistoryEntry <NSObject>
+@property (nonatomic, readonly, copy) NSURL *url;
+/// Its title; the address when the page had none.
+@property (nonatomic, readonly, copy) NSString *title;
+@property (nonatomic, readonly, copy) NSDate *visitTime;
+@end
+
+/// The history page's data, from the window's profile's history (a private window's: its everyday
+/// profile's). Completions run once, on a later task, and not at all if the window closes first.
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowHistory <NSObject>
+@optional
+/// Newest first, as Chrome's history page asks: pages whose title or address match `text` (all
+/// for empty text), on `host` or its subdomains if given, visited before `before` (nil: now), at
+/// most `count`. `complete`: nothing older is left.
+- (void)queryHistory:(NSString *)text
+                host:(nullable NSString *)host
+              before:(nullable NSDate *)before
+               count:(NSInteger)count
+          completion:(void (^)(NSArray<id<BEHistoryEntry>> *entries, BOOL complete))completion;
+/// Removes each entry's page's visits on that entry's day (the page's Remove from history).
+- (void)removeHistoryEntries:(NSArray<id<BEHistoryEntry>> *)entries completion:(void (^)(void))completion;
+/// The icon history keeps for the page at `url`; nil if it has none.
+- (void)requestHistoryFaviconForURL:(NSURL *)url completion:(void (^)(NSImage *_Nullable favicon))completion;
+@end
+
+/// What a page asks the user, in a dialog over the page. (Chrome: JavaScript dialogs, the
+/// beforeunload dialog, the HTTP sign-in dialog, the external protocol dialog.)
+typedef NS_ENUM(NSInteger, BEPageDialogKind) {
+    BEPageDialogKindAlert = 0,
+    BEPageDialogKindConfirm = 1,
+    /// Asks for text: `defaultText` to start with.
+    BEPageDialogKindPrompt = 2,
+    /// "Leave site?": the page would lose what was entered (beforeunload).
+    BEPageDialogKindLeave = 3,
+    /// "Reload site?", the same when reloading.
+    BEPageDialogKindReload = 4,
+    /// A site or proxy asks for a user name and password (HTTP authentication).
+    BEPageDialogKindSignIn = 5,
+    /// A link would open another app ("Open Zoom?").
+    BEPageDialogKindOpenApp = 6,
+};
+
+NS_SWIFT_UI_ACTOR
+@protocol BEPageDialog <NSObject>
+@property (nonatomic, readonly) BEPageDialogKind kind;
+/// As Chrome titles it: "example.com says", "Leave site?", "Sign in", "Open Zoom?".
+@property (nonatomic, readonly, copy) NSString *title;
+/// The page's message; a sign-in's who and why ("https://example.com requires a username and
+/// password", and "Your connection to this site is not private" over http); an app's, who asks.
+@property (nonatomic, readonly, copy) NSString *message;
+/// A prompt's text, or a sign-in's saved user name, to start with.
+@property (nonatomic, readonly, copy) NSString *defaultText;
+/// A sign-in's saved password, to start with.
+@property (nonatomic, readonly, copy) NSString *defaultPassword;
+/// What accepting says: "OK", "Leave", "Reload", "Sign in", "Open Zoom".
+@property (nonatomic, readonly, copy) NSString *acceptTitle;
+/// What cancelling says: "Cancel"; empty for an alert, which only has OK.
+@property (nonatomic, readonly, copy) NSString *cancelTitle;
+/// An app's "Always allow example.com to open links of this type in the associated app"; nil
+/// when Chrome wouldn't offer it.
+@property (nonatomic, readonly, copy, nullable) NSString *rememberTitle;
+/// NO once answered or closed by Chrome; an answer then does nothing.
+@property (nonatomic, readonly) BOOL isOpen;
+/// Runs when `defaultText` or `defaultPassword` change (saved sign-in details arriving).
+@property (nonatomic, copy, nullable) void (^didChange)(void);
+/// OK, Leave, Sign in, Open: `text` is a prompt's answer or a sign-in's user name, `password` a
+/// sign-in's, `remember` the app's checkbox.
+- (void)acceptWithText:(NSString *)text password:(NSString *)password remember:(BOOL)remember;
+/// Cancel, Stay, Escape (an alert's too). Answers arrive on a later task, so the app may answer
+/// from inside `tab:showPageDialog:`.
+- (void)cancel;
+@end
+
+/// A site asks for permissions (camera, location, notifications…), as Chrome's permission bubble
+/// asks; one prompt can ask for several (camera and microphone).
+NS_SWIFT_UI_ACTOR
+@protocol BEPermissionPrompt <NSObject>
+/// Who asks, as Chrome shows it ("example.com"; "This file").
+@property (nonatomic, readonly, copy) NSString *origin;
+/// What for, one line each, as under Chrome's "example.com wants to" ("Use your camera").
+@property (nonatomic, readonly, copy) NSArray<NSString *> *requests;
+/// Each request's kind, for its icon: camera, microphone, location, notifications, clipboard,
+/// midi, downloads, storage, windows, fonts, sensors, vr, ar, handTracking, idle, localNetwork,
+/// protocolHandler, other.
+@property (nonatomic, readonly, copy) NSArray<NSString *> *kinds;
+/// "Allow while visiting the site", or a request's own.
+@property (nonatomic, readonly, copy) NSString *allowTitle;
+/// "Allow this time"; nil when a request can't be allowed just once (notifications).
+@property (nonatomic, readonly, copy, nullable) NSString *allowOnceTitle;
+/// "Never allow", or a request's own.
+@property (nonatomic, readonly, copy) NSString *blockTitle;
+/// NO once answered or withdrawn; an answer then does nothing.
+@property (nonatomic, readonly) BOOL isOpen;
+- (void)allow;
+- (void)allowOnce;
+- (void)block;
+/// Closed without an answer (the prompt's close button, Escape).
+- (void)dismiss;
+@end
+
+/// What a tab asks the app to show over its page in place of Chrome's own UI.
+NS_SWIFT_UI_ACTOR
+@protocol BETabDelegateNativeUI <NSObject>
+@optional
+/// The app shows `dialog` over the tab's page while the tab is selected, until it's answered or
+/// `tab:closePageDialog:` comes. Returns whether it does; NO gets Chrome's dialog. A tab has one
+/// at a time.
+- (BOOL)tab:(id<BETab>)tab showPageDialog:(id<BEPageDialog>)dialog;
+/// Chrome closed it unanswered (the page navigated or went, another dialog replaced it).
+- (void)tab:(id<BETab>)tab closePageDialog:(id<BEPageDialog>)dialog;
+/// The same for a permission prompt, which Chrome shows only while its tab is selected (it
+/// closes the prompt when another tab is selected and asks again on return).
+- (BOOL)tab:(id<BETab>)tab showPermissionPrompt:(id<BEPermissionPrompt>)prompt;
+- (void)tab:(id<BETab>)tab closePermissionPrompt:(id<BEPermissionPrompt>)prompt;
+@end
+
 NS_ASSUME_NONNULL_END

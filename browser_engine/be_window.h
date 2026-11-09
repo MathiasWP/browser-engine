@@ -23,6 +23,7 @@ class TabGroupId;
 
 namespace browser_engine {
 class BEBookmarkBar;
+class BEHistory;
 class BEBrowserWindow;
 }  // namespace browser_engine
 
@@ -100,6 +101,8 @@ NS_ASSUME_NONNULL_BEGIN
     (NSString*)identifier;
 // The bookmarks bar's controller, made on first use; null once closed.
 - (nullable browser_engine::BEBookmarkBar*)bookmarkBar;
+// The history page's data, made on first use; null once closed.
+- (nullable browser_engine::BEHistory*)history;
 
 @end
 
@@ -121,7 +124,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface BEChromiumWindow (NativeUI) <BEWindowBookmarkEditing,
                                         BEWindowTabCommands,
-                                        BEWindowFind>
+                                        BEWindowFind,
+                                        BEWindowHistory>
 // Each asks the delegate in place of Chrome's UI; NO when the delegate shows
 // none, and Chrome's should.
 - (BOOL)showBookmarkEditor:(BEChromiumBookmarkEditRequest*)request;

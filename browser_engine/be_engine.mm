@@ -23,6 +23,7 @@
 #import "browser_engine/be_closed.h"
 #include "browser_engine/be_downloads.h"
 #import "browser_engine/be_most_visited.h"
+#import "browser_engine/be_page_dialogs.h"
 #import "browser_engine/be_palette.h"
 #import "browser_engine/public/BEEngineOptional.h"
 #import "browser_engine/be_preferences.h"
@@ -36,11 +37,14 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_window.h"
+#include "chrome/browser/ui/login/login_handler.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface_iterator.h"
 #include "chrome/browser/ui/browser_window/public/profile_browser_collection.h"
+#include "components/javascript_dialogs/tab_modal_dialog_view.h"
+#include "content/public/browser/weak_document_ptr.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
 #include "chrome/browser/ui/profiles/profile_picker.h"
@@ -119,6 +123,9 @@ class EngineHooks : public Hooks {
       // on: the everyday profile, and a private window's own.
       downloads_.ObserveProfile(browser->GetProfile());
       window->OnBrowserInitialized();
+      // Chrome has installed its app-modal dialog factory by now
+      // (ChromeBrowserMainExtraPartsViews).
+      InstallAppModalDialogFactory();
     }
   }
 
@@ -160,6 +167,39 @@ class EngineHooks : public Hooks {
     // the first window) is done: like AppController's _startupComplete.
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce([] { [Engine() browserDidStart]; }));
+  }
+
+  base::WeakPtr<javascript_dialogs::TabModalDialogView> CreateJavaScriptDialog(
+      content::WebContents* parent_web_contents,
+      const std::u16string& title,
+      int dialog_type,
+      const std::u16string& message_text,
+      const std::u16string& default_prompt_text,
+      base::OnceCallback<void(bool, const std::u16string&)>& dialog_callback,
+      base::OnceClosure& dialog_force_closed_callback) override {
+    return browser_engine::CreateJavaScriptDialog(
+        parent_web_contents, title, dialog_type, message_text,
+        default_prompt_text, dialog_callback, dialog_force_closed_callback);
+  }
+
+  std::unique_ptr<LoginHandler> CreateLoginHandler(
+      const net::AuthChallengeInfo& auth_info,
+      content::WebContents* web_contents,
+      base::OnceCallback<void(const std::optional<net::AuthCredentials>&)>&
+          auth_required_callback) override {
+    return browser_engine::CreateLoginHandler(auth_info, web_contents,
+                                              auth_required_callback);
+  }
+
+  bool RunExternalProtocolDialog(
+      const GURL& url,
+      content::WebContents* web_contents,
+      const url::Origin* initiating_origin,
+      const content::WeakDocumentPtr& initiator_document,
+      const std::u16string& program_name) override {
+    return browser_engine::RunExternalProtocolDialog(
+        url, web_contents, initiating_origin, initiator_document,
+        program_name);
   }
 
   void DidEndMainMessageLoop() override {

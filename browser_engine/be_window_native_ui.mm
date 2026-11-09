@@ -14,6 +14,7 @@
 #include "base/location.h"
 #include "base/strings/sys_string_conversions.h"
 #include "browser_engine/be_bookmark_bar.h"
+#include "browser_engine/be_history.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
@@ -481,6 +482,33 @@ id<BEWindowDelegateNativeUI> NativeUIDelegate(id<BEWindowDelegate> delegate,
                                                           didFindMatch:current
                                                                     of:total
                                                                  final:final];
+}
+
+// MARK: BEWindowHistory
+
+- (void)queryHistory:(NSString*)text
+                host:(NSString*)host
+              before:(NSDate*)before
+               count:(NSInteger)count
+          completion:(void (^)(NSArray<id<BEHistoryEntry>>* entries,
+                               BOOL complete))completion {
+  if (browser_engine::BEHistory* history = [self history]) {
+    history->Query(text, host, before, count, completion);
+  }
+}
+
+- (void)removeHistoryEntries:(NSArray<id<BEHistoryEntry>>*)entries
+                  completion:(void (^)(void))completion {
+  if (browser_engine::BEHistory* history = [self history]) {
+    history->Remove(entries, completion);
+  }
+}
+
+- (void)requestHistoryFaviconForURL:(NSURL*)url
+                         completion:(void (^)(NSImage* favicon))completion {
+  if (browser_engine::BEHistory* history = [self history]) {
+    history->RequestFavicon(url, completion);
+  }
 }
 
 @end

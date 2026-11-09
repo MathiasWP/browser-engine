@@ -16,6 +16,7 @@
 #include "browser_engine/be_autocomplete.h"
 #include "browser_engine/be_bookmark_bar.h"
 #include "browser_engine/be_browser_window.h"
+#include "browser_engine/be_history.h"
 #import "browser_engine/be_closed.h"
 #import "browser_engine/be_engine.h"
 #import "browser_engine/be_extensions.h"
@@ -231,6 +232,9 @@ int CommandIdForCommand(BECommand command) {
   // The bookmarks bar's clicks, menus and drops: made for the first, destroyed
   // with the window.
   std::unique_ptr<browser_engine::BEBookmarkBar> _bookmarkBar;
+  // The history page's data: made when the app first asks, destroyed with the
+  // window.
+  std::unique_ptr<browser_engine::BEHistory> _history;
   // showsBookmarkBar as the delegate last heard it.
   BOOL _showsBookmarkBar;
   BOOL _bookmarkBarUpdatePending;
@@ -352,6 +356,17 @@ int CommandIdForCommand(BECommand command) {
     _bookmarkBar = std::make_unique<browser_engine::BEBookmarkBar>(browser);
   }
   return _bookmarkBar.get();
+}
+
+- (browser_engine::BEHistory*)history {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser) {
+    return nullptr;
+  }
+  if (!_history) {
+    _history = std::make_unique<browser_engine::BEHistory>(browser->GetProfile());
+  }
+  return _history.get();
 }
 
 - (void)sendExtensionActionsUpdate {
@@ -541,6 +556,8 @@ int CommandIdForCommand(BECommand command) {
   // dies with it.
   _autocomplete.reset();
   _bookmarkBar.reset();
+  // History's answers still on their way are cancelled with it.
+  _history.reset();
   // An offer still open goes with the window, as the bubble goes with its
   // browser: unless Chrome is shutting down, the crash counts as acknowledged
   // (ExitTypeService::CheckUserAckedCrash()). UNVERIFIED: that runs inside

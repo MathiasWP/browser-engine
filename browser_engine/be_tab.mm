@@ -17,6 +17,7 @@
 #include "base/task/sequenced_task_runner.h"
 #import "browser_engine/be_infobars.h"
 #import "browser_engine/be_passwords.h"
+#include "browser_engine/be_permission_prompt.h"
 #import "browser_engine/be_site_settings.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
@@ -352,6 +353,7 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
     _handle = tab->GetHandle();
     _observer = std::make_unique<browser_engine::TabObserver>(self);
     _observer->StartObserving(tab->GetContents());
+    browser_engine::UseAppPermissionPrompts(tab->GetContents());
     _passwordOffer =
         std::make_unique<browser_engine::TabPasswordOffer>(tab, self);
     _infobars = std::make_unique<browser_engine::TabInfobars>(self);
@@ -374,6 +376,7 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   _warm.reset();  // The old page's; the new one is warmed when asked again.
   _observer->StartObserving([self contents]);
   _infobars->StartObserving([self contents]);
+  browser_engine::UseAppPermissionPrompts([self contents]);
   [self scheduleUpdate];
 }
 
