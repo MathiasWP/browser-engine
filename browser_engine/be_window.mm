@@ -16,6 +16,8 @@
 #include "browser_engine/be_autocomplete.h"
 #include "browser_engine/be_bookmark_bar.h"
 #include "browser_engine/be_browser_window.h"
+#include "browser_engine/be_history.h"
+#include "browser_engine/be_settings_data.h"
 #import "browser_engine/be_closed.h"
 #import "browser_engine/be_engine.h"
 #import "browser_engine/be_extensions.h"
@@ -231,6 +233,12 @@ int CommandIdForCommand(BECommand command) {
   // The bookmarks bar's clicks, menus and drops: made for the first, destroyed
   // with the window.
   std::unique_ptr<browser_engine::BEBookmarkBar> _bookmarkBar;
+  // The history page's data: made when the app first asks, destroyed with the
+  // window.
+  std::unique_ptr<browser_engine::BEHistory> _history;
+  // Settings' own pages' data: made when the app first asks, destroyed with
+  // the window.
+  std::unique_ptr<browser_engine::BESettingsData> _settingsData;
   // showsBookmarkBar as the delegate last heard it.
   BOOL _showsBookmarkBar;
   BOOL _bookmarkBarUpdatePending;
@@ -352,6 +360,55 @@ int CommandIdForCommand(BECommand command) {
     _bookmarkBar = std::make_unique<browser_engine::BEBookmarkBar>(browser);
   }
   return _bookmarkBar.get();
+}
+
+- (browser_engine::BEHistory*)history {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser) {
+    return nullptr;
+  }
+  if (!_history) {
+    _history = std::make_unique<browser_engine::BEHistory>(browser->GetProfile());
+  }
+  return _history.get();
+}
+
+- (browser_engine::BESettingsData*)settingsData {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser) {
+    return nullptr;
+  }
+  if (!_settingsData) {
+    // Changes go to the delegate on a later task: the service may be in the
+    // middle of a change of its own.
+    __weak BEChromiumWindow* weakSelf = self;
+    auto later = [](void (^tell)(void)) {
+      return base::BindRepeating(
+          [](void (^tell)(void)) {
+            base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+                FROM_HERE, base::BindOnce(tell));
+          },
+          tell);
+    };
+    _settingsData = std::make_unique<browser_engine::BESettingsData>(
+        browser->GetProfile(), later(^{
+          BEChromiumWindow* window = weakSelf;
+          id delegate = window.delegate;
+          if ([delegate respondsToSelector:@selector
+                        (windowDidChangeSearchEngines:)]) {
+            [delegate windowDidChangeSearchEngines:window];
+          }
+        }),
+        later(^{
+          BEChromiumWindow* window = weakSelf;
+          id delegate = window.delegate;
+          if ([delegate respondsToSelector:@selector
+                        (windowDidChangeSiteZoomLevels:)]) {
+            [delegate windowDidChangeSiteZoomLevels:window];
+          }
+        }));
+  }
+  return _settingsData.get();
 }
 
 - (void)sendExtensionActionsUpdate {
@@ -541,6 +598,9 @@ int CommandIdForCommand(BECommand command) {
   // dies with it.
   _autocomplete.reset();
   _bookmarkBar.reset();
+  // History's answers still on their way are cancelled with it.
+  _history.reset();
+  _settingsData.reset();
   // An offer still open goes with the window, as the bubble goes with its
   // browser: unless Chrome is shutting down, the crash counts as acknowledged
   // (ExitTypeService::CheckUserAckedCrash()). UNVERIFIED: that runs inside
