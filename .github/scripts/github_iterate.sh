@@ -33,8 +33,18 @@ build() {
   fi
   local _flavor
   _flavor="$(cat "$_out_dir/build_flavor.txt" 2>/dev/null || echo release)"
-  if [[ "$_flavor" != "dev" ]]; then
-    echo "::error::The base is a '$_flavor' build; iterate needs a run of build.yml with flavor dev (a release base relinks with ThinLTO for over an hour)."
+  # An optimised base (BE_OPTIMISED, iterate.yml's `optimised`) is the engine for daily use:
+  # the changed files compile as on a dev base, and the framework relinks with ThinLTO, reusing
+  # what the base's ThinLTO cache (out/Default/thinlto-cache, archived with the build state) has
+  # for the modules that didn't change.
+  if [[ -n "${BE_OPTIMISED:-}" ]]; then
+    if [[ "$_flavor" == "dev" ]]; then
+      echo "::error::optimised needs an optimised base (a run of build.yml with flavor engine), not a dev one."
+      exit 1
+    fi
+    du -sh "$_out_dir/thinlto-cache" 2>/dev/null || echo "::warning::The base has no ThinLTO cache: the link redoes every module."
+  elif [[ "$_flavor" != "dev" ]]; then
+    echo "::error::The base is a '$_flavor' build; iterate needs a run of build.yml with flavor dev (a release base relinks with ThinLTO for over an hour; pass optimised for that)."
     exit 1
   fi
   if [[ ! -f "$_root_dir/build_finished_$_target_cpu.log" ]] && [[ ! -d "$_out_dir/Chromium.app" ]]; then
