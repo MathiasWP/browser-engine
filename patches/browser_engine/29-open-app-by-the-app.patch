@@ -1,0 +1,33 @@
+# browser_engine touch point: a link to another app (zoommtg:, mailto: when no
+# handler is set…) shows Chrome's "Open <app>?" dialog. Inside the app, the
+# layer asks first: for a tab whose app draws page dialogs it shows the app's
+# (be_page_dialogs.mm), which remembers the choice and launches the app as the
+# dialog's Open does.
+
+diff --git a/chrome/browser/ui/views/external_protocol_dialog.cc b/chrome/browser/ui/views/external_protocol_dialog.cc
+--- a/chrome/browser/ui/views/external_protocol_dialog.cc
++++ b/chrome/browser/ui/views/external_protocol_dialog.cc
+@@ -8,6 +8,7 @@
+ 
+ #include "base/strings/string_util.h"
+ #include "base/types/optional_util.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "build/build_config.h"
+ #include "chrome/browser/external_protocol/external_protocol_handler.h"
+ #include "chrome/browser/picture_in_picture/picture_in_picture_occlusion_observer.h"
+@@ -105,6 +106,15 @@
+ 
+   if (program_name.empty()) {
+     // ShellExecute won't do anything. Don't bother warning the user.
++    return;
++  }
++
++  // browser_engine: inside the app, the app asks for its tabs
++  // (be_page_dialogs.mm), and launches as the dialog's Open does.
++  if (browser_engine::IsEmbedded() &&
++      browser_engine::GetHooks()->RunExternalProtocolDialog(
++          url, web_contents, base::OptionalToPtr(initiating_origin),
++          initiator_document, program_name)) {
+     return;
+   }
+ 

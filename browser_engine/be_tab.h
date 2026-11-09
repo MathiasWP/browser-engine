@@ -16,7 +16,12 @@ class TabInterface;
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface BEChromiumTab : NSObject <BETab, BETabPreloading>
+@interface BEChromiumTab
+    : NSObject <BETab,
+                BETabPreloading,
+                BETabNavigationHistory,
+                BETabSiteInfo,
+                BETabSiteSettingPopovers>
 
 // The object for `tab`, made the first time it's asked for.
 + (BEChromiumTab*)tabForTab:(tabs::TabInterface*)tab;

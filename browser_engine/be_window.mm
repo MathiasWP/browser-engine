@@ -16,6 +16,8 @@
 #include "browser_engine/be_autocomplete.h"
 #include "browser_engine/be_bookmark_bar.h"
 #include "browser_engine/be_browser_window.h"
+#include "browser_engine/be_history.h"
+#include "browser_engine/be_settings_data.h"
 #import "browser_engine/be_closed.h"
 #import "browser_engine/be_engine.h"
 #import "browser_engine/be_extensions.h"
@@ -29,6 +31,7 @@
 #include "chrome/browser/preloading/chrome_preloading.h"
 #include "chrome/browser/preloading/new_tab_page_preload/new_tab_page_preload_pipeline_manager.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/reading_list/reading_list_model_factory.h"
 #include "chrome/browser/sessions/exit_type_service.h"
 #include "chrome/browser/sessions/session_restore.h"
 #include "chrome/browser/tab_list/tab_removed_reason.h"
@@ -46,6 +49,8 @@
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/tabs/public/tab_features.h"
 #include "chrome/browser/ui/tabs/tab_strip_user_gesture_details.h"
+#include "components/reading_list/core/reading_list_entry.h"
+#include "components/reading_list/core/reading_list_model.h"
 #include "components/tab_groups/tab_group_color.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "components/tab_groups/tab_group_visual_data.h"
@@ -193,6 +198,31 @@ int CommandIdForCommand(BECommand command) {
 
 @end
 
+// One reading list entry as the app reads it: a copy, which doesn't change.
+@interface BEChromiumReadingListItem : NSObject <BEReadingListItem>
+- (instancetype)initWithEntry:(const ReadingListEntry&)entry;
+@end
+
+@implementation BEChromiumReadingListItem
+
+@synthesize url = _url;
+@synthesize title = _title;
+@synthesize isRead = _isRead;
+@synthesize added = _added;
+
+- (instancetype)initWithEntry:(const ReadingListEntry&)entry {
+  if ((self = [super init])) {
+    _url = net::NSURLWithGURL(entry.URL());
+    _title = base::SysUTF8ToNSString(entry.Title());
+    _isRead = entry.IsRead();
+    // Microseconds since the Unix epoch.
+    _added = [NSDate dateWithTimeIntervalSince1970:entry.CreationTime() / 1e6];
+  }
+  return self;
+}
+
+@end
+
 @implementation BEChromiumWindow {
   // Null once the window closed.
   browser_engine::BEBrowserWindow* _window;
@@ -203,6 +233,12 @@ int CommandIdForCommand(BECommand command) {
   // The bookmarks bar's clicks, menus and drops: made for the first, destroyed
   // with the window.
   std::unique_ptr<browser_engine::BEBookmarkBar> _bookmarkBar;
+  // The history page's data: made when the app first asks, destroyed with the
+  // window.
+  std::unique_ptr<browser_engine::BEHistory> _history;
+  // Settings' own pages' data: made when the app first asks, destroyed with
+  // the window.
+  std::unique_ptr<browser_engine::BESettingsData> _settingsData;
   // showsBookmarkBar as the delegate last heard it.
   BOOL _showsBookmarkBar;
   BOOL _bookmarkBarUpdatePending;
@@ -324,6 +360,55 @@ int CommandIdForCommand(BECommand command) {
     _bookmarkBar = std::make_unique<browser_engine::BEBookmarkBar>(browser);
   }
   return _bookmarkBar.get();
+}
+
+- (browser_engine::BEHistory*)history {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser) {
+    return nullptr;
+  }
+  if (!_history) {
+    _history = std::make_unique<browser_engine::BEHistory>(browser->GetProfile());
+  }
+  return _history.get();
+}
+
+- (browser_engine::BESettingsData*)settingsData {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser) {
+    return nullptr;
+  }
+  if (!_settingsData) {
+    // Changes go to the delegate on a later task: the service may be in the
+    // middle of a change of its own.
+    __weak BEChromiumWindow* weakSelf = self;
+    auto later = [](void (^tell)(void)) {
+      return base::BindRepeating(
+          [](void (^tell)(void)) {
+            base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+                FROM_HERE, base::BindOnce(tell));
+          },
+          tell);
+    };
+    _settingsData = std::make_unique<browser_engine::BESettingsData>(
+        browser->GetProfile(), later(^{
+          BEChromiumWindow* window = weakSelf;
+          id delegate = window.delegate;
+          if ([delegate respondsToSelector:@selector
+                        (windowDidChangeSearchEngines:)]) {
+            [delegate windowDidChangeSearchEngines:window];
+          }
+        }),
+        later(^{
+          BEChromiumWindow* window = weakSelf;
+          id delegate = window.delegate;
+          if ([delegate respondsToSelector:@selector
+                        (windowDidChangeSiteZoomLevels:)]) {
+            [delegate windowDidChangeSiteZoomLevels:window];
+          }
+        }));
+  }
+  return _settingsData.get();
 }
 
 - (void)sendExtensionActionsUpdate {
@@ -513,6 +598,9 @@ int CommandIdForCommand(BECommand command) {
   // dies with it.
   _autocomplete.reset();
   _bookmarkBar.reset();
+  // History's answers still on their way are cancelled with it.
+  _history.reset();
+  _settingsData.reset();
   // An offer still open goes with the window, as the bubble goes with its
   // browser: unless Chrome is shutting down, the crash counts as acknowledged
   // (ExitTypeService::CheckUserAckedCrash()). UNVERIFIED: that runs inside
@@ -1024,7 +1112,83 @@ int CommandIdForCommand(BECommand command) {
     return;
   }
   // Last: opening can close this window's tab, and so the window.
-  _autocomplete->Open(static_cast<size_t>(index), inNewTab);
+  _autocomplete->Open(static_cast<size_t>(index),
+                      inNewTab ? WindowOpenDisposition::NEW_FOREGROUND_TAB
+                               : WindowOpenDisposition::CURRENT_TAB);
+}
+
+// BEWindowOpening: ⇧Return in Chrome's omnibox.
+- (void)openSuggestionInNewWindowAtIndex:(NSInteger)index {
+  if (!_autocomplete || index < 0) {
+    return;
+  }
+  _autocomplete->Open(static_cast<size_t>(index),
+                      WindowOpenDisposition::NEW_WINDOW);
+}
+
+// BEWindowReadingList: Chrome's reading list (ReadingListModel), the
+// window's profile's, as Chrome's side panel and tab menu use it.
+
+- (ReadingListModel*)readingListModel {
+  BrowserWindowInterface* browser = [self browser];
+  return browser ? ReadingListModelFactory::GetForBrowserContext(
+                       browser->GetProfile())
+                 : nullptr;
+}
+
+- (NSArray<id<BEReadingListItem>>*)readingListItems {
+  ReadingListModel* model = [self readingListModel];
+  if (!model || !model->loaded()) {
+    return @[];
+  }
+  std::vector<scoped_refptr<const ReadingListEntry>> entries;
+  for (const GURL& url : model->GetKeys()) {
+    if (scoped_refptr<const ReadingListEntry> entry =
+            model->GetEntryByURL(url)) {
+      entries.push_back(entry);
+    }
+  }
+  std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
+    return a->CreationTime() > b->CreationTime();
+  });
+  NSMutableArray<id<BEReadingListItem>>* items =
+      [NSMutableArray arrayWithCapacity:entries.size()];
+  for (const auto& entry : entries) {
+    [items addObject:[[BEChromiumReadingListItem alloc] initWithEntry:*entry]];
+  }
+  return items;
+}
+
+- (BOOL)canAddToReadingList:(NSURL*)url {
+  ReadingListModel* model = [self readingListModel];
+  return model && model->loaded() &&
+         model->IsUrlSupported(net::GURLWithNSURL(url));
+}
+
+- (void)addToReadingList:(NSURL*)url title:(NSString*)title {
+  ReadingListModel* model = [self readingListModel];
+  const GURL gurl = net::GURLWithNSURL(url);
+  if (!model || !model->loaded() || !model->IsUrlSupported(gurl)) {
+    return;
+  }
+  model->AddOrReplaceEntry(gurl, base::SysNSStringToUTF8(title),
+                           reading_list::ADDED_VIA_CURRENT_APP,
+                           /*estimated_read_time=*/std::nullopt,
+                           /*creation_time=*/std::nullopt);
+}
+
+- (void)setReadingListItem:(NSURL*)url read:(BOOL)read {
+  if (ReadingListModel* model = [self readingListModel];
+      model && model->loaded()) {
+    model->SetReadStatusIfExists(net::GURLWithNSURL(url), read);
+  }
+}
+
+- (void)removeFromReadingList:(NSURL*)url {
+  if (ReadingListModel* model = [self readingListModel];
+      model && model->loaded()) {
+    model->RemoveEntryByURL(net::GURLWithNSURL(url), FROM_HERE);
+  }
 }
 
 @end

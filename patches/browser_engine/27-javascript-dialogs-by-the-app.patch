@@ -1,0 +1,36 @@
+# browser_engine touch point: a page's alert(), confirm() and prompt() show
+# Chrome's tab-modal dialog, which TabModalDialogManager asks its delegate to
+# make here. Inside the app, the layer asks first: for a tab whose app draws
+# page dialogs it returns its own TabModalDialogView (be_page_dialogs.mm), which
+# answers through the same two callbacks, once, as the Views dialog does.
+
+diff --git a/chrome/browser/ui/views/javascript_tab_modal_dialog_view_views.cc b/chrome/browser/ui/views/javascript_tab_modal_dialog_view_views.cc
+--- a/chrome/browser/ui/views/javascript_tab_modal_dialog_view_views.cc
++++ b/chrome/browser/ui/views/javascript_tab_modal_dialog_view_views.cc
+@@ -5,6 +5,7 @@
+ #include "chrome/browser/ui/views/javascript_tab_modal_dialog_view_views.h"
+ 
+ #include "base/functional/callback.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+ #include "chrome/browser/ui/javascript_dialogs/javascript_tab_modal_dialog_manager_delegate_desktop.h"
+ #include "chrome/browser/ui/tabs/tab_strip_model.h"
+@@ -175,6 +176,18 @@
+     const std::u16string& default_prompt_text,
+     content::JavaScriptDialogManager::DialogClosedCallback dialog_callback,
+     base::OnceClosure dialog_force_closed_callback) {
++  // browser_engine: inside the app, the app draws the dialog for its tabs
++  // (be_page_dialogs.mm), answering through the same callbacks.
++  if (browser_engine::IsEmbedded()) {
++    base::WeakPtr<javascript_dialogs::TabModalDialogView> dialog =
++        browser_engine::GetHooks()->CreateJavaScriptDialog(
++            web_contents_, title, static_cast<int>(dialog_type), message_text,
++            default_prompt_text, dialog_callback,
++            dialog_force_closed_callback);
++    if (dialog) {
++      return dialog;
++    }
++  }
+   return (new JavaScriptTabModalDialogViewViews(
+               web_contents_, alerting_web_contents, title, dialog_type,
+               message_text, default_prompt_text, std::move(dialog_callback),

@@ -39,14 +39,34 @@ src="$cache/src"
 # The layer as it is here, and the touch points as they are here, on the original files.
 rsync -r -c --delete browser_engine/ "$src/browser_engine/"
 (cd "$src/originals" && find . -type f) | while read -r f; do cp "$src/originals/$f" "$src/$f"; done
+version="$(sed -n 's/.*CHROME_VERSION_STRING "\(.*\)"/\1/p' "$src/out/Default/gen/chrome/common/chrome_version.h")"
 for patch in patches/browser_engine/*.patch; do
   targets=($(sed -n 's|^+++ b/||p' "$patch"))
-  # A touch point newer than the headers may patch files they don't have (a source nothing here
-  # compiles); otherwise its files' originals are kept the first time it applies.
+  # A touch point newer than the headers may patch files they don't have: those come from
+  # Chromium's own sources at the headers' version, once (ungoogled's patches aren't on them, so a
+  # file those patches change may not apply). Its files' originals are kept the first time it
+  # applies.
   missing=0
-  for f in "${targets[@]}"; do [[ -f "$src/$f" ]] || missing=1; done
+  fetched=0
+  for f in "${targets[@]}"; do
+    [[ -f "$src/fetched/$f" ]] && fetched=1
+    [[ -f "$src/$f" || -f "$src/originals/$f" ]] && continue
+    mkdir -p "$(dirname "$src/$f")" "$(dirname "$src/fetched/$f")"
+    if curl -sf "https://chromium.googlesource.com/chromium/src/+/refs/tags/$version/$f?format=TEXT" | base64 -d > "$src/$f.partial" && [[ -s "$src/$f.partial" ]]; then
+      mv "$src/$f.partial" "$src/$f"
+      touch "$src/fetched/$f"
+      fetched=1
+    else
+      rm -f "$src/$f.partial"
+      missing=1
+    fi
+  done
   if (( missing )); then
-    echo "skip $(basename "$patch"): its files aren't in run $run's headers" >&2
+    echo "skip $(basename "$patch"): its files aren't in run $run's headers or Chromium $version" >&2
+    continue
+  fi
+  if (( fetched )) && ! patch -p1 -s -N --dry-run -d "$src" -i "$PWD/$patch" >/dev/null; then
+    echo "skip $(basename "$patch"): it doesn't apply to Chromium's own file (ungoogled's patches or domain substitution change it)" >&2
     continue
   fi
   for f in "${targets[@]}"; do
@@ -80,6 +100,21 @@ for path in files:
     if not entry and layer and path.startswith("browser_engine/") and path.endswith((".mm", ".cc")):
         old = os.path.normpath(os.path.join("out/Default", layer["file"]))
         entry = {"command": layer["command"].replace("../../" + old, "../../" + path), "file": "../../" + path}
+    # A Chrome file only a new touch point patches compiles as the nearest one the headers' run
+    # compiled does (the longest shared directory): the same target's flags, near enough to check.
+    if not entry and path.endswith((".mm", ".cc")) and not path.startswith("browser_engine/"):
+        def shared(f):
+            a, b = f.split("/")[:-1], path.split("/")[:-1]
+            n = 0
+            while n < min(len(a), len(b)) and a[n] == b[n]:
+                n += 1
+            return n
+        candidates = [f for f in by_file if not f.startswith("browser_engine/") and f.endswith(path[-3:])]
+        if candidates:
+            near = max(candidates, key=shared)
+            if shared(near) >= 2:
+                entry = {"command": by_file[near]["command"].replace("../../" + near, "../../" + path), "file": "../../" + path}
+                print(f"{path}: compiled as {near} is")
     if not entry:
         print(f"skip {path}: no compile command (a header, or a file the engine doesn't build)")
         continue

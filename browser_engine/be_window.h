@@ -10,6 +10,10 @@
 #import "browser_engine/public/BEEngine.h"
 #import "browser_engine/public/BEEngineOptional.h"
 
+#include <optional>
+
+class BrowserWindowInterface;
+class TabStripModel;
 class TabStripModelChange;
 struct TabStripSelectionChange;
 
@@ -18,12 +22,16 @@ class TabGroupId;
 }  // namespace tab_groups
 
 namespace browser_engine {
+class BEBookmarkBar;
+class BEHistory;
+class BESettingsData;
 class BEBrowserWindow;
 }  // namespace browser_engine
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface BEChromiumWindow : NSObject <BEWindow, BEWindowPreloading>
+@interface BEChromiumWindow
+    : NSObject <BEWindow, BEWindowPreloading, BEWindowReadingList, BEWindowOpening>
 
 - (instancetype)initWithBrowserWindow:(browser_engine::BEBrowserWindow*)window
     NS_DESIGNATED_INITIALIZER;
@@ -84,6 +92,58 @@ NS_ASSUME_NONNULL_BEGIN
 // delegate windowDidUpdateExtensionActions:.
 - (void)extensionActionsDidChange;
 
+// For the window's categories (be_window_native_ui.mm).
+
+// The browser and its tab strip while the window is open, or null.
+- (nullable BrowserWindowInterface*)browser;
+- (nullable TabStripModel*)tabStripModel;
+// One of this window's groups, if `identifier` names one.
+- (std::optional<tab_groups::TabGroupId>)groupWithIdentifier:
+    (NSString*)identifier;
+// The bookmarks bar's controller, made on first use; null once closed.
+- (nullable browser_engine::BEBookmarkBar*)bookmarkBar;
+// The history page's data, made on first use; null once closed.
+- (nullable browser_engine::BEHistory*)history;
+// Settings' own pages' data, made on first use; null once closed.
+- (nullable browser_engine::BESettingsData*)settingsData;
+
+@end
+
+// The app's own UI in place of Chrome's (be_window_native_ui.mm).
+
+// What Chrome asks of a bookmark editor, for the app's.
+@interface BEChromiumBookmarkEditRequest : NSObject <BEBookmarkEditRequest>
+- (instancetype)initWithKind:(BEBookmarkEditKind)kind
+                    bookmark:(int64_t)bookmark
+                      folder:(int64_t)folder
+                       index:(NSInteger)index
+                         url:(nullable NSURL*)url
+                       title:(NSString*)title
+                        urls:(NSArray<NSURL*>*)urls
+                   urlTitles:(NSArray<NSString*>*)urlTitles
+    NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
+@interface BEChromiumWindow (NativeUI) <BEWindowBookmarkEditing,
+                                        BEWindowTabCommands,
+                                        BEWindowFind,
+                                        BEWindowHistory,
+                                        BEWindowBrowsingData,
+                                        BEWindowSearchEngines,
+                                        BEWindowSiteZoom>
+// Each asks the delegate in place of Chrome's UI; NO when the delegate shows
+// none, and Chrome's should.
+- (BOOL)showBookmarkEditor:(BEChromiumBookmarkEditRequest*)request;
+- (BOOL)confirmClosingWithDownloads:(NSInteger)count
+                           quitting:(BOOL)quitting
+                         completion:(void (^)(BOOL closeAnyway))completion;
+- (BOOL)showFullscreenNotice:(NSString*)text;
+// Whether the delegate draws the find bar (then it hears every find).
+- (BOOL)drawsFindBar;
+- (void)showFindBarWithText:(NSString*)text;
+- (void)hideFindBar;
+- (void)didFindMatch:(NSInteger)current of:(NSInteger)total final:(BOOL)final;
 @end
 
 NS_ASSUME_NONNULL_END
