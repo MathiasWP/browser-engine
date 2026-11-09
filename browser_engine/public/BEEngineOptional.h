@@ -34,6 +34,10 @@ NS_SWIFT_UI_ACTOR
 /// Opens `url` as a link chosen from `source`: a bookmark navigation, as Chrome's New Tab page
 /// tiles open, which a prerender made for it on mouse-down matches. (4 Nov 2026.)
 - (void)loadURL:(NSURL *)url from:(BEPreloadSource)source;
+/// While warm, the tab's page, hidden, keeps rendering, so choosing the tab shows a fresh frame at
+/// once (Firefox's tab warming, for the pointer resting on a tab); the page still reads as hidden.
+/// (5 Nov 2026.)
+- (void)setWarm:(BOOL)warm;
 @end
 
 NS_ASSUME_NONNULL_END
