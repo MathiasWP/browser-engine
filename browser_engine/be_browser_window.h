@@ -76,6 +76,8 @@ class BEBrowserWindow : public BrowserWindow,
   static BEBrowserWindow* FromBrowser(const BrowserWindowInterface* browser);
 
   BrowserWindowInterface* browser() const { return browser_; }
+  // What the app talks to; it hears what the window asks of it.
+  BEChromiumWindow* objc_window() const { return objc_window_; }
   views::Widget* widget() const { return widget_.get(); }
 
   // Where Chrome's bubbles for the address field point (the bookmark bubble,

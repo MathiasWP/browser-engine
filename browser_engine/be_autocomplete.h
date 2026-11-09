@@ -17,6 +17,7 @@
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
+#include "ui/base/window_open_disposition.h"
 
 @class BEChromiumWindow;
 
@@ -42,9 +43,10 @@ class BEAutocomplete : public AutocompleteController::Observer {
   // window hears nothing more until the next Start().
   void Stop();
   // Opens the suggestion at `index` of the last update the window was sent,
-  // then ends the edit. Index 0 while the window has nothing for the latest
-  // text is Return: what the omnibox would open for that text.
-  void Open(size_t index, bool in_new_tab);
+  // then ends the edit, here or in a new foreground tab or window. Index 0
+  // while the window has nothing for the latest text is Return: what the
+  // omnibox would open for that text.
+  void Open(size_t index, WindowOpenDisposition disposition);
 
   // AutocompleteController::Observer:
   void OnResultChanged(AutocompleteController* controller,

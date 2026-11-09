@@ -99,6 +99,14 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 | `be_bookmarks.{h,mm}` | `BEBookmarks`: the everyday profile's bookmarks as Chrome's Bookmarks menu lists them (`BookmarkMenuBridge`, through `BookmarkMergedSurfaceService`) and its bookmarks bar shows them (the bar folder, All Bookmarks), as `BEBookmark` (`BEEngine.bookmarks`, `bookmarkBar`, `otherBookmarks`), listed again on the first read after a change, which `engineDidChangeBookmarks:` announces; icons from `BookmarkModel::GetFavicon()` when read |
 | `be_bookmark_bar.{h,mm}` | `BEBookmarkBar`: a window's bookmarks bar as `BookmarkBarView` drives Chrome's: `BookmarkBarUIControllerImpl` with the desktop adapters opens bookmarks and folders and shows Chrome's `BookmarkContextMenu`; drops go through `BookmarkUIOperationsHelperMergedSurfaces::DropBookmarks()` with the bar's drop rules. `BEBrowserWindow` is the window's `BookmarkBarController::Delegate`, for `BEWindow.showsBookmarkBar` |
 | `be_window.{h,mm}` | `BEChromiumWindow` (`BEWindow`): commands, tab strip events, extension actions, status text |
+| `be_window_native_ui.mm` | The app's own UI in place of Chrome's, for a window: bookmark editing, the tab menu's and tab group editor's commands, find in page, the history page's data (`BEWindowBookmarkEditing`, `BEWindowTabCommands`, `BEWindowFind`, `BEWindowHistory`) |
+| `be_find_bar.{h,mm}` | `BEFindBar : FindBar`, for a window whose app draws the find bar: Chrome's `FindBarController` drives it, and it tells the app |
+| `be_history.{h,mm}` | `BEHistory`: a window's history page data, `HistoryService::QueryHistory()` and `ExpireHistory()` asked as `BrowsingHistoryService` asks them |
+| `be_page_dialogs.{h,mm}` | The page's dialogs drawn by the app (`BEPageDialog`): our `TabModalDialogView` (touch point 27), app-modal dialog factory in front of Chrome's (beforeunload), `LoginHandler` (28) and external protocol dialog (29) |
+| `be_permission_prompt.{h,mm}` | Permission prompts drawn by the app (`BEPermissionPrompt`): each tab's `PermissionRequestManager` makes its prompts with our factory, which falls back to Chrome's for quiet and page-embedded prompts |
+| `be_settings_data.{h,mm}` | `BESettingsData`: Settings' own pages for a window's profile: Delete browsing data (Chrome's counters, with its dialog's words, and `browsing_data_important_sites_util::Remove()` with its dialog's masks), search engines and site search (`TemplateURLService`, as `KeywordEditorController` lists them), sites with their own zoom (`HostZoomMap`) |
+| `be_page_info.{h,mm}` | `BEChromiumSiteInfo` (`BESiteInfo`): Chrome's `PageInfo` for the page with our `PageInfoUI`, which keeps what it shows (the security summary, permissions, cookies) in Chrome's words; the app's permission changes go through `PageInfo::OnSitePermissionChanged()` as the bubble's do |
+| `be_palette.{h,mm}` | The app's palette for what Chrome still draws: a colour mixer appended last that pins Chrome's `kColorSys*` tokens |
 | `be_tab.{h,mm}` | `BEChromiumTab` (`BETab`): state, favicon, bookmark state (Chrome's `BookmarkTabHelper`), zoom (`ZoomController`), sound and mute (`RecentlyAudibleHelper`, `SetTabAudioMuted`), site settings (`be_site_settings.h`), infobars (`be_infobars.h`), coalesced updates, the per-TabHandle registry |
 | `../patches/browser_engine/*.patch` | The touch points (below) |
 | `../.github/workflows/iterate.yml`, `../.github/scripts/github_iterate.sh` | The incremental build |
@@ -142,6 +150,11 @@ patches), and checked with `git apply --check` the way the build applies them.
 | 22 | `chrome/browser/ui/extensions/extension_install_ui_desktop.cc` | After an install, the "added" dialog's closing callback points the toolbar at the new extension, dereferencing the BrowserView unchecked (`OnInstallSuccess()`); for our windows it stops there |
 | 23 | `chrome/browser/ui/bookmarks/bookmark_context_menu_controller.cc` | The bookmarks bar's right-click menu without "Open in Split View", as touch point 17 does for the page's menu: the app doesn't show split views yet |
 | 24 | `components/autofill/core/common/autofill_prefs.cc` | Inside the app, Chrome offers to save addresses and payment cards and fills them, as Chrome and Safari do: ungoogled-chromium's inox defaults turn `autofill.profile_enabled` and `autofill.credit_card_enabled` off. The settings stay |
+| 25 | `components/performance_manager/user_tuning/prefs.cc` | Inside the app, Memory Saver is on by default: tabs left alone long enough sleep, and reload when chosen. Chrome's own default is off; the setting stays |
+| 26 | `components/password_manager/core/browser/password_feature_manager_impl.cc`, `chrome/app/generated_resources.grd` | Chrome suggests strong passwords without sync (ungoogled-chromium has none, so it never did), and its prompt says the password is kept "on this device" |
+| 27 | `chrome/browser/ui/views/javascript_tab_modal_dialog_view_views.cc` | `alert()`, `confirm()`, `prompt()`: `JavaScriptTabModalDialogManagerDelegateDesktop::CreateNewDialog()` asks the layer first, which returns its own `TabModalDialogView` for a tab whose app draws page dialogs (`be_page_dialogs.mm`) |
+| 28 | `chrome/browser/ui/views/login_handler_views.cc` | HTTP sign-in: `LoginHandler::Create()` asks the layer first, which returns its own `LoginHandler` (the app's dialog, filled from the password manager) |
+| 29 | `chrome/browser/ui/views/external_protocol_dialog.cc` | "Open <app>?": `RunExternalProtocolDialog()` asks the layer first, which asks in the app and launches as the dialog's Open does |
 
 **Webium's other `BrowserWindowFeatures` arms, and why there's no patch for them:**
 - `BrowserElementsWebUiBrowser`: with Webium off, features make `BrowserElementsViewsImpl`;
@@ -213,7 +226,13 @@ waits for one and fetches it.
 files with the engine build's clang, compile commands and headers, which an iterate run made
 with `pack_headers` uploads (`github_pack_headers.py`: every header in the tree, the generated
 ones, libc++, clang and its plugins, and the touch points' files before our patches). Compile
-errors in about a minute; it doesn't link.
+errors in about a minute; it doesn't link. A touch point newer than the pack patches files it
+lacks: those come from Chromium's own sources at the pack's version (once; marked in
+`src/fetched/`) and compile with the command of the nearest file the pack has, and a patch that
+doesn't apply to them (ungoogled's patches or domain substitution changed the file) is skipped.
+It doesn't run GN: a dependency a target's visibility list refuses (`//browser_engine` may not
+depend on `//third_party/blink/public/common:headers`, found on 9 Nov) shows only in the session's
+`gn gen`, as `Dependency not allowed`.
 
 **Lost runners:** `retry.yml` reruns a failed `build.yml` job when its annotations say GitHub
 lost the runner ("lost communication with the server"), up to twice; the job resumes from the
