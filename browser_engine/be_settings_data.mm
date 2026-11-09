@@ -23,7 +23,6 @@
 #include "content/public/browser/browsing_data_filter_builder.h"
 #include "content/public/browser/browsing_data_remover.h"
 #include "content/public/browser/host_zoom_map.h"
-#include "third_party/blink/public/common/page/page_zoom.h"
 #include "url/gurl.h"
 
 @interface BEChromiumSearchEngine : NSObject <BESearchEngine>
@@ -380,8 +379,9 @@ NSDictionary<NSString*, NSNumber*>* BESettingsData::SiteZoomLevels() {
         level.host.empty()) {
       continue;
     }
-    const double percent =
-        std::round(blink::ZoomLevelToZoomFactor(level.zoom_level) * 100);
+    // blink::ZoomLevelToZoomFactor(): each level is 20% more (the layer may
+    // not depend on Blink's headers).
+    const double percent = std::round(std::pow(1.2, level.zoom_level) * 100);
     levels[base::SysUTF8ToNSString(level.host)] = @(percent);
   }
   return levels;
