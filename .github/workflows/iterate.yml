@@ -1,4 +1,5 @@
 name: Build the embedding layer on a dev base
+run-name: ${{ inputs.optimised && 'Optimised engine on a saved optimised build' || 'Build the embedding layer on a dev base' }}
 
 # One iteration on //browser_engine: take the build state of a dev base (a
 # build.yml run with flavor dev, or an iterate run that saved its state), put
@@ -16,12 +17,17 @@ on:
   workflow_dispatch:
     inputs:
       base_run_id:
-        description: "Run whose github_build_artifact_x86_64 to start from; empty: the one in .github/dev-base.txt"
+        description: "Run whose github_build_artifact_x86_64 to start from; empty: the one in .github/dev-base.txt (.github/optimised-base.txt with optimised)"
         required: false
         type: string
         default: ""
       save_base:
         description: "Also upload this run's build state as a base for later runs (about 15 minutes more)"
+        required: false
+        type: boolean
+        default: false
+      optimised:
+        description: "Start from an optimised build (build.yml flavor engine, base_run_id) instead of a dev base: the engine for daily use, relinked with ThinLTO from the base's cache, in an hour or two instead of a full build's day or two"
         required: false
         type: boolean
         default: false
@@ -57,9 +63,11 @@ jobs:
       - name: Copy GitHub specific scripts to git-root folder
         run: cp -va ./.github/scripts/ ./
       - name: Choose the dev base
-        run: echo "BE_BASE_RUN_ID=${INPUT_BASE:-$(cat .github/dev-base.txt)}" | tee -a "$GITHUB_ENV"
+        run: echo "BE_BASE_RUN_ID=${INPUT_BASE:-$(cat ".github/${BASE_FILE}")}" | tee -a "$GITHUB_ENV"
         env:
           INPUT_BASE: ${{ inputs.base_run_id }}
+          # The newest saved optimised build for optimised, the dev base otherwise.
+          BASE_FILE: ${{ inputs.optimised && 'optimised-base.txt' || 'dev-base.txt' }}
       - name: Prepare Xcode
         run: ./github_prepare_xcode.sh
       - name: Disable spotlight
@@ -77,6 +85,7 @@ jobs:
       - name: Apply the embedding layer and build
         run: ./github_iterate.sh build x86_64 2>&1 | tee -a github_actions_iterate_x86_64.log
         env:
+          BE_OPTIMISED: ${{ inputs.optimised && '1' || '' }}
           # The dev base's touch points, to take back those changed since (gh run view).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Package the engine
