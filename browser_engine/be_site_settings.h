@@ -20,6 +20,7 @@
 #include "base/time/time.h"
 #import "browser_engine/be_bubble_anchor.h"
 #import "browser_engine/public/BEEngine.h"
+#import "browser_engine/public/BEEngineOptional.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
 
@@ -46,6 +47,13 @@ NSArray<id<BESiteSetting>>* GetSiteSettings(content::WebContents* contents);
 void ShowSiteSetting(tabs::TabInterface* tab,
                      const std::string& identifier,
                      NSRect rect);
+
+// The popover for `tab`'s icon `identifier`, for the app to draw in place of
+// Chrome's bubble: its bubble model's content and actions. Nil where the
+// bubble stays Chrome's (camera and microphone, with their device menus, and
+// bubbles with controls of their own), or when the icon isn't shown now.
+id<BESiteSettingPopover> MakeSiteSettingPopover(tabs::TabInterface* tab,
+                                                const std::string& identifier);
 
 // What Chrome's location bar keeps for its icons per window: the open bubble,
 // and what else it refreshes them for. Made by BEBrowserWindow before the app

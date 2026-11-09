@@ -16,7 +16,9 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #import "browser_engine/be_infobars.h"
+#import "browser_engine/be_page_info.h"
 #import "browser_engine/be_passwords.h"
+#include "browser_engine/be_permission_prompt.h"
 #import "browser_engine/be_site_settings.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
@@ -53,6 +55,7 @@
 #include "components/tabs/public/tab_interface.h"
 #include "components/zoom/zoom_controller.h"
 #include "components/zoom/zoom_observer.h"
+#include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
@@ -68,6 +71,36 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image.h"
 #include "url/gurl.h"
+
+// One page of the back or forward list: a copy, which doesn't change.
+@interface BEChromiumNavigationItem : NSObject <BENavigationItem>
+- (instancetype)initWithOffset:(NSInteger)offset
+                         title:(NSString*)title
+                           url:(NSURL*)url
+                       favicon:(nullable NSImage*)favicon;
+@end
+
+@implementation BEChromiumNavigationItem
+
+@synthesize offset = _offset;
+@synthesize title = _title;
+@synthesize url = _url;
+@synthesize favicon = _favicon;
+
+- (instancetype)initWithOffset:(NSInteger)offset
+                         title:(NSString*)title
+                           url:(NSURL*)url
+                       favicon:(NSImage*)favicon {
+  if ((self = [super init])) {
+    _offset = offset;
+    _title = [title copy];
+    _url = [url copy];
+    _favicon = favicon;
+  }
+  return self;
+}
+
+@end
 
 @interface BEChromiumTab ()
 - (instancetype)initWithTab:(tabs::TabInterface*)tab NS_DESIGNATED_INITIALIZER;
@@ -192,6 +225,9 @@ class TabObserver : public content::WebContentsObserver,
     ScheduleUpdate();
   }
   void DidUpdateAudioMutingState(bool muted) override { ScheduleUpdate(); }
+  // Discarded in place (Memory Saver), the tab keeps its WebContents: the app
+  // hears of it here (isDiscarded), and of its reload as it starts loading.
+  void WasDiscarded() override { ScheduleUpdate(); }
   void WebContentsDestroyed() override {
     // The favicon driver, the bookmark helper, the zoom controller, the
     // audible helper and the distillability driver are WebContents user data;
@@ -318,6 +354,7 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
     _handle = tab->GetHandle();
     _observer = std::make_unique<browser_engine::TabObserver>(self);
     _observer->StartObserving(tab->GetContents());
+    browser_engine::UseAppPermissionPrompts(tab->GetContents());
     _passwordOffer =
         std::make_unique<browser_engine::TabPasswordOffer>(tab, self);
     _infobars = std::make_unique<browser_engine::TabInfobars>(self);
@@ -340,6 +377,7 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   _warm.reset();  // The old page's; the new one is warmed when asked again.
   _observer->StartObserving([self contents]);
   _infobars->StartObserving([self contents]);
+  browser_engine::UseAppPermissionPrompts([self contents]);
   [self scheduleUpdate];
 }
 
@@ -665,6 +703,81 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   contents->GetController().LoadURLWithParams(params);
 }
 
+// BETabNavigationHistory: the pages Chrome's back and forward menus list
+// (BackForwardMenuModel), for the app's own menus.
+- (NSArray<id<BENavigationItem>>*)navigationItemsForward:(BOOL)forward
+                                                   limit:(NSInteger)limit {
+  content::WebContents* contents = [self contents];
+  if (!contents) {
+    return @[];
+  }
+  content::NavigationController& controller = contents->GetController();
+  const int current = controller.GetCurrentEntryIndex();
+  NSMutableArray<id<BENavigationItem>>* items = [NSMutableArray array];
+  for (int step = 1; static_cast<NSInteger>(items.count) < limit; ++step) {
+    const int index = forward ? current + step : current - step;
+    if (index < 0 || index >= controller.GetEntryCount()) {
+      break;
+    }
+    content::NavigationEntry* entry = controller.GetEntryAtIndex(index);
+    const content::FaviconStatus& favicon = entry->GetFavicon();
+    [items addObject:[[BEChromiumNavigationItem alloc]
+                         initWithOffset:forward ? step : -step
+                                  title:base::SysUTF16ToNSString(
+                                            entry->GetTitleForDisplay())
+                                    url:net::NSURLWithGURL(
+                                            entry->GetVirtualURL())
+                                favicon:favicon.valid && !favicon.image.IsEmpty()
+                                            ? favicon.image.ToNSImage()
+                                            : nil]];
+  }
+  return items;
+}
+
+- (void)goToNavigationOffset:(NSInteger)offset
+                 disposition:(BEOpenDisposition)disposition {
+  content::WebContents* contents = [self contents];
+  if (!contents ||
+      !contents->GetController().CanGoToOffset(static_cast<int>(offset))) {
+    return;
+  }
+  content::NavigationController& controller = contents->GetController();
+  if (disposition == BEOpenDispositionCurrentTab) {
+    controller.GoToOffset(static_cast<int>(offset));
+    return;
+  }
+  // Elsewhere: the page itself, as a link to it opens.
+  content::NavigationEntry* entry = controller.GetEntryAtIndex(
+      controller.GetCurrentEntryIndex() + static_cast<int>(offset));
+  tabs::TabInterface* tab = [self tab];
+  BrowserWindowInterface* browser = tab ? tab->GetBrowserWindowInterface()
+                                        : nullptr;
+  if (!entry || !browser) {
+    return;
+  }
+  NavigateParams params(browser, entry->GetVirtualURL(),
+                        ui::PAGE_TRANSITION_LINK);
+  params.source_contents = contents;
+  switch (disposition) {
+    case BEOpenDispositionNewForegroundTab:
+      params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+      break;
+    case BEOpenDispositionNewBackgroundTab:
+      params.disposition = WindowOpenDisposition::NEW_BACKGROUND_TAB;
+      break;
+    case BEOpenDispositionNewWindow:
+      params.disposition = WindowOpenDisposition::NEW_WINDOW;
+      break;
+    case BEOpenDispositionPrivateWindow:
+      params.disposition = WindowOpenDisposition::OFF_THE_RECORD;
+      break;
+    case BEOpenDispositionCurrentTab:
+      params.disposition = WindowOpenDisposition::CURRENT_TAB;
+      break;
+  }
+  Navigate(&params);
+}
+
 - (void)focusPage {
   if (content::WebContents* contents = [self contents]) {
     contents->Focus();
@@ -676,6 +789,17 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   // floats it over our window (BELocationBar::GetChipAnchor()).
   ShowPageInfoDialog([self contents], base::DoNothing(),
                      bubble_anchor_util::Anchor::kLocationBar);
+}
+
+- (id<BESiteInfo>)siteInfo {
+  content::WebContents* contents = [self contents];
+  return contents ? [[BEChromiumSiteInfo alloc] initWithContents:contents]
+                  : nil;
+}
+
+- (id<BESiteSettingPopover>)siteSettingPopover:(NSString*)identifier {
+  return browser_engine::MakeSiteSettingPopover(
+      [self tab], base::SysNSStringToUTF8(identifier));
 }
 
 - (void)showSiteSetting:(NSString*)identifier fromRect:(NSRect)rect {
