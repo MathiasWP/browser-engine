@@ -229,6 +229,9 @@ errors in about a minute; it doesn't link. A touch point newer than the pack pat
 lacks: those come from Chromium's own sources at the pack's version (once; marked in
 `src/fetched/`) and compile with the command of the nearest file the pack has, and a patch that
 doesn't apply to them (ungoogled's patches or domain substitution changed the file) is skipped.
+It doesn't run GN: a dependency a target's visibility list refuses (`//browser_engine` may not
+depend on `//third_party/blink/public/common:headers`, found on 9 Nov) shows only in the session's
+`gn gen`, as `Dependency not allowed`.
 
 **Lost runners:** `retry.yml` reruns a failed `build.yml` job when its annotations say GitHub
 lost the runner ("lost communication with the server"), up to twice; the job resumes from the
