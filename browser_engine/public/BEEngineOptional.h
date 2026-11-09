@@ -481,4 +481,70 @@ NS_SWIFT_UI_ACTOR
 - (void)windowDidChangeSiteZoomLevels:(id<BEWindow>)window;
 @end
 
+// MARK: Page info (9 Nov 2026)
+
+/// A site permission's setting. (Chrome: `ContentSetting`)
+typedef NS_ENUM(NSInteger, BESitePermissionState) {
+    /// As every site: the default (Chrome: CONTENT_SETTING_DEFAULT, or none set).
+    BESitePermissionStateDefault = 0,
+    BESitePermissionStateAllow = 1,
+    BESitePermissionStateBlock = 2,
+    BESitePermissionStateAsk = 3,
+};
+
+/// One of a site's permissions, as Chrome's page info lists it.
+NS_SWIFT_UI_ACTOR
+@protocol BESitePermission <NSObject>
+/// Chrome's content setting type, to set it by.
+@property (nonatomic, readonly) NSInteger identifier;
+/// "Location", "Camera".
+@property (nonatomic, readonly, copy) NSString *title;
+@property (nonatomic, readonly) BESitePermissionState state;
+/// Chrome's words for it: "Allowed", "Blocked", "Allowed this time", "Blocked by your organisation".
+@property (nonatomic, readonly, copy) NSString *stateText;
+/// What the default is now: Allow, Block or Ask.
+@property (nonatomic, readonly) BESitePermissionState defaultState;
+/// Which states Chrome offers for it besides the default.
+@property (nonatomic, readonly) BOOL offersAllow;
+@property (nonatomic, readonly) BOOL offersAsk;
+/// Set by policy or an extension: it can't be changed here.
+@property (nonatomic, readonly) BOOL isManaged;
+/// The site uses it now (the camera on).
+@property (nonatomic, readonly) BOOL isInUse;
+@end
+
+/// What Chrome's page info shows about the page's site, live while it's open: its connection
+/// and identity, its permissions, its cookies. (Chrome: `PageInfo` and a `PageInfoUI`)
+NS_SWIFT_UI_ACTOR
+@protocol BESiteInfo <NSObject>
+/// "example.com".
+@property (nonatomic, readonly, copy) NSString *site;
+/// Chrome's summary of the connection ("Connection is secure", "Not secure") and its details.
+@property (nonatomic, readonly, copy) NSString *securityTitle;
+@property (nonatomic, readonly, copy) NSString *securityDetail;
+/// Green in Chrome (secure), red (a warning), or neither.
+@property (nonatomic, readonly) BOOL isSecure;
+@property (nonatomic, readonly) BOOL isWarning;
+/// The site's certificate can be shown (`showCertificate`).
+@property (nonatomic, readonly) BOOL hasCertificate;
+/// Sites allowed to use cookies on the page; -1 while unknown.
+@property (nonatomic, readonly) NSInteger cookieSites;
+/// The permissions Chrome lists for the site: those set, in use, or asked for.
+@property (nonatomic, readonly, copy) NSArray<id<BESitePermission>> *permissions;
+/// Runs whenever any of the above changes.
+@property (nonatomic, copy, nullable) void (^didChange)(void);
+- (void)setPermission:(NSInteger)identifier state:(BESitePermissionState)state;
+/// Chrome's certificate viewer.
+- (void)showCertificate;
+/// The page info is closed: a change that needs a reload gets Chrome's "Reload" infobar.
+- (void)close;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BETabSiteInfo <NSObject>
+@optional
+/// Page info for the tab's page now, in place of Chrome's bubble; nil for none (a new tab).
+- (nullable id<BESiteInfo>)siteInfo;
+@end
+
 NS_ASSUME_NONNULL_END

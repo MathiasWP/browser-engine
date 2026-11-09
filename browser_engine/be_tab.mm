@@ -16,6 +16,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #import "browser_engine/be_infobars.h"
+#import "browser_engine/be_page_info.h"
 #import "browser_engine/be_passwords.h"
 #include "browser_engine/be_permission_prompt.h"
 #import "browser_engine/be_site_settings.h"
@@ -788,6 +789,12 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   // floats it over our window (BELocationBar::GetChipAnchor()).
   ShowPageInfoDialog([self contents], base::DoNothing(),
                      bubble_anchor_util::Anchor::kLocationBar);
+}
+
+- (id<BESiteInfo>)siteInfo {
+  content::WebContents* contents = [self contents];
+  return contents ? [[BEChromiumSiteInfo alloc] initWithContents:contents]
+                  : nil;
 }
 
 - (void)showSiteSetting:(NSString*)identifier fromRect:(NSRect)rect {
