@@ -15,6 +15,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "browser_engine/be_bookmark_bar.h"
 #include "browser_engine/be_history.h"
+#include "browser_engine/be_settings_data.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
@@ -508,6 +509,78 @@ id<BEWindowDelegateNativeUI> NativeUIDelegate(id<BEWindowDelegate> delegate,
                          completion:(void (^)(NSImage* favicon))completion {
   if (browser_engine::BEHistory* history = [self history]) {
     history->RequestFavicon(url, completion);
+  }
+}
+
+// MARK: BEWindowBrowsingData
+
+- (void)countBrowsingData:(BEBrowsingDataTypes)types
+                   period:(BEBrowsingDataPeriod)period
+                   update:(void (^)(BEBrowsingDataTypes type,
+                                    NSString* text))update {
+  if (browser_engine::BESettingsData* data = [self settingsData]) {
+    data->CountBrowsingData(types, period, update);
+  }
+}
+
+- (void)stopCountingBrowsingData {
+  if (browser_engine::BESettingsData* data = [self settingsData]) {
+    data->StopCounting();
+  }
+}
+
+- (void)removeBrowsingData:(BEBrowsingDataTypes)types
+                    period:(BEBrowsingDataPeriod)period
+                completion:(void (^)(void))completion {
+  if (browser_engine::BESettingsData* data = [self settingsData]) {
+    data->RemoveBrowsingData(types, period, completion);
+  }
+}
+
+// MARK: BEWindowSearchEngines
+
+- (NSArray<id<BESearchEngine>>*)searchEngines {
+  browser_engine::BESettingsData* data = [self settingsData];
+  return data ? data->SearchEngines() : @[];
+}
+
+- (void)makeDefaultSearchEngine:(int64_t)identifier {
+  if (browser_engine::BESettingsData* data = [self settingsData]) {
+    data->MakeDefault(identifier);
+  }
+}
+
+- (int64_t)addSearchEngine:(NSString*)name
+                   keyword:(NSString*)keyword
+                       url:(NSString*)url {
+  browser_engine::BESettingsData* data = [self settingsData];
+  return data ? data->Add(name, keyword, url) : 0;
+}
+
+- (BOOL)editSearchEngine:(int64_t)identifier
+                    name:(NSString*)name
+                 keyword:(NSString*)keyword
+                     url:(NSString*)url {
+  browser_engine::BESettingsData* data = [self settingsData];
+  return data && data->Edit(identifier, name, keyword, url);
+}
+
+- (void)removeSearchEngine:(int64_t)identifier {
+  if (browser_engine::BESettingsData* data = [self settingsData]) {
+    data->Remove(identifier);
+  }
+}
+
+// MARK: BEWindowSiteZoom
+
+- (NSDictionary<NSString*, NSNumber*>*)siteZoomLevels {
+  browser_engine::BESettingsData* data = [self settingsData];
+  return data ? data->SiteZoomLevels() : @{};
+}
+
+- (void)resetZoomForSite:(NSString*)host {
+  if (browser_engine::BESettingsData* data = [self settingsData]) {
+    data->ResetZoom(host);
   }
 }
 

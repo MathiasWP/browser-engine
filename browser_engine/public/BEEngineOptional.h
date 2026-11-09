@@ -388,4 +388,97 @@ NS_SWIFT_UI_ACTOR
 - (void)tab:(id<BETab>)tab closePermissionPrompt:(id<BEPermissionPrompt>)prompt;
 @end
 
+// MARK: Settings' own pages (9 Nov 2026)
+
+/// What Delete browsing data deletes. (Chrome: its dialog's checkboxes)
+typedef NS_OPTIONS(NSUInteger, BEBrowsingDataTypes) {
+    BEBrowsingDataTypeHistory = 1 << 0,
+    BEBrowsingDataTypeDownloads = 1 << 1,
+    /// Cookies and other site data: signs out of most sites.
+    BEBrowsingDataTypeCookies = 1 << 2,
+    BEBrowsingDataTypeCache = 1 << 3,
+    /// Autofill form data: addresses and what was typed into forms.
+    BEBrowsingDataTypeFormData = 1 << 4,
+    BEBrowsingDataTypeSiteSettings = 1 << 5,
+    BEBrowsingDataTypePasswords = 1 << 6,
+};
+
+/// From when. (Chrome: `browsing_data::TimePeriod`)
+typedef NS_ENUM(NSInteger, BEBrowsingDataPeriod) {
+    BEBrowsingDataPeriodLastHour = 0,
+    BEBrowsingDataPeriodLastDay = 1,
+    BEBrowsingDataPeriodLastWeek = 2,
+    BEBrowsingDataPeriodFourWeeks = 3,
+    BEBrowsingDataPeriodAllTime = 4,
+    BEBrowsingDataPeriodLast15Minutes = 6,
+};
+
+/// Delete browsing data, for the window's profile (a private window's: its everyday profile's).
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowBrowsingData <NSObject>
+@optional
+/// Counts what each of `types` holds from `period`, as Chrome's dialog words it ("1,203 items",
+/// "From 32 sites", "Less than 4 MB"): `update` gets one type's text at a time, again as counting
+/// goes on, until counting is asked for again or stopped.
+- (void)countBrowsingData:(BEBrowsingDataTypes)types
+                   period:(BEBrowsingDataPeriod)period
+                   update:(void (^)(BEBrowsingDataTypes type, NSString *text))update;
+- (void)stopCountingBrowsingData;
+/// Deletes `types` from `period`, as the dialog's Delete does; `completion` once done.
+- (void)removeBrowsingData:(BEBrowsingDataTypes)types
+                    period:(BEBrowsingDataPeriod)period
+                completion:(void (^)(void))completion;
+@end
+
+/// A search engine, or a site's search ("wikipedia.org"). (Chrome: `TemplateURL`)
+NS_SWIFT_UI_ACTOR
+@protocol BESearchEngine <NSObject>
+@property (nonatomic, readonly) int64_t identifier;
+@property (nonatomic, readonly, copy) NSString *name;
+/// What's typed before the search in the address field.
+@property (nonatomic, readonly, copy) NSString *keyword;
+/// The search's address, with %s for what's searched for.
+@property (nonatomic, readonly, copy) NSString *url;
+@property (nonatomic, readonly) BOOL isDefault;
+/// One of the engines Chrome offers as the default; otherwise a site search.
+@property (nonatomic, readonly) BOOL isDefaultChoice;
+@property (nonatomic, readonly) BOOL canMakeDefault;
+@property (nonatomic, readonly) BOOL canEdit;
+@property (nonatomic, readonly) BOOL canRemove;
+@end
+
+/// Search engines and site search (Chrome's settings page), for the window's profile. Changes,
+/// whoever made them, come as `windowDidChangeSearchEngines:` (BEWindowDelegateSettings).
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowSearchEngines <NSObject>
+@optional
+/// The default choices first, then site search, each as Chrome orders them; empty until loaded.
+@property (nonatomic, readonly, copy) NSArray<id<BESearchEngine>> *searchEngines;
+- (void)makeDefaultSearchEngine:(int64_t)identifier;
+/// A new site search; its id, or 0 when it can't be added: a name or keyword missing or the
+/// keyword taken, or an address without %s.
+- (int64_t)addSearchEngine:(NSString *)name keyword:(NSString *)keyword url:(NSString *)url;
+/// NO under the same rules as adding.
+- (BOOL)editSearchEngine:(int64_t)identifier name:(NSString *)name keyword:(NSString *)keyword url:(NSString *)url;
+- (void)removeSearchEngine:(int64_t)identifier;
+@end
+
+/// Sites with a zoom of their own (Chrome: `HostZoomMap`), for the window's profile.
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowSiteZoom <NSObject>
+@optional
+/// Host to percent.
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, NSNumber *> *siteZoomLevels;
+/// The site goes back to the default zoom.
+- (void)resetZoomForSite:(NSString *)host;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowDelegateSettings <NSObject>
+@optional
+- (void)windowDidChangeSearchEngines:(id<BEWindow>)window;
+/// A site's zoom changed, or went back to the default.
+- (void)windowDidChangeSiteZoomLevels:(id<BEWindow>)window;
+@end
+
 NS_ASSUME_NONNULL_END
