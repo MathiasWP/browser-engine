@@ -797,6 +797,11 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
                   : nil;
 }
 
+- (id<BESiteSettingPopover>)siteSettingPopover:(NSString*)identifier {
+  return browser_engine::MakeSiteSettingPopover(
+      [self tab], base::SysNSStringToUTF8(identifier));
+}
+
 - (void)showSiteSetting:(NSString*)identifier fromRect:(NSRect)rect {
   if (tabs::TabInterface* tab = [self tab]) {
     browser_engine::ShowSiteSetting(tab, base::SysNSStringToUTF8(identifier),

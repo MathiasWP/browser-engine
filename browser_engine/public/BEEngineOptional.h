@@ -547,4 +547,42 @@ NS_SWIFT_UI_ACTOR
 - (nullable id<BESiteInfo>)siteInfo;
 @end
 
+// MARK: Site setting popovers (9 Nov 2026)
+
+/// What a site setting's icon in the address bar opens, as Chrome's content setting bubble shows
+/// it: "Pop-ups blocked", what was blocked, and a choice for the site.
+NS_SWIFT_UI_ACTOR
+@protocol BESiteSettingPopover <NSObject>
+@property (nonatomic, readonly, copy) NSString *title;
+@property (nonatomic, readonly, copy) NSString *message;
+/// What it lists (a blocked pop-up's address), each opened with `openItem:`; it grows as more
+/// are blocked.
+@property (nonatomic, readonly, copy) NSArray<NSString *> *items;
+/// The choices for the site ("Always allow pop-ups and redirects from example.com", "Continue
+/// blocking"), and the one chosen.
+@property (nonatomic, readonly, copy) NSArray<NSString *> *choices;
+@property (nonatomic, readonly) NSInteger chosen;
+/// NO when policy decides it.
+@property (nonatomic, readonly) BOOL canChoose;
+/// "Manage", which opens Chrome's settings for it; empty for none.
+@property (nonatomic, readonly, copy) NSString *manageTitle;
+/// "Done".
+@property (nonatomic, readonly, copy) NSString *doneTitle;
+/// Runs when `items` change.
+@property (nonatomic, copy, nullable) void (^didChange)(void);
+- (void)openItem:(NSInteger)index;
+- (void)choose:(NSInteger)index;
+- (void)manage;
+/// Done, or the popover closed: the choice takes effect, as when Chrome's bubble closes.
+- (void)close;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BETabSiteSettingPopovers <NSObject>
+@optional
+/// The popover for one of `siteSettings` (its identifier), for the app to draw; nil where it
+/// stays Chrome's (camera and microphone, with their device menus).
+- (nullable id<BESiteSettingPopover>)siteSettingPopover:(NSString *)identifier;
+@end
+
 NS_ASSUME_NONNULL_END

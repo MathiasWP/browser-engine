@@ -20,9 +20,14 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/content_setting_bubble_contents.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/web_contents.h"
+#include "ui/base/l10n/l10n_util_mac.h"
+#include "ui/events/event.h"
+#include "ui/events/event_utils.h"
+#include "ui/gfx/geometry/point.h"
 #include "services/device/public/cpp/device_features.h"
 #include "services/device/public/cpp/geolocation/geolocation_system_permission_manager.h"
 #include "services/device/public/cpp/geolocation/location_system_permission_status.h"
@@ -380,6 +385,211 @@ void BESiteSettings::OnWidgetClosing(views::Widget* widget) {
 void BESiteSettings::OnWidgetDestroying(views::Widget* widget) {
   // CloseNow() skips OnWidgetClosing().
   OnBubbleClosed();
+}
+
+// MARK: The app's popovers
+
+namespace {
+
+// What ContentSettingBubbleContents is to the model: its owner, holding the
+// radio choice it reads when committing, and following its list.
+class PopoverOwner : public ContentSettingBubbleModel::Owner {
+ public:
+  PopoverOwner(std::unique_ptr<ContentSettingBubbleModel> model,
+               void (^changed)(void))
+      : model_(std::move(model)), changed_(changed) {
+    model_->set_owner(this);
+    chosen_ = model_->bubble_content().radio_group.default_item;
+    for (const ContentSettingBubbleModel::ListItem& item :
+         model_->bubble_content().list_items) {
+      items_.push_back(item.title);
+    }
+  }
+  PopoverOwner(const PopoverOwner&) = delete;
+  PopoverOwner& operator=(const PopoverOwner&) = delete;
+  ~PopoverOwner() override { model_->set_owner(nullptr); }
+
+  ContentSettingBubbleModel* model() { return model_.get(); }
+  const std::vector<std::u16string>& items() const { return items_; }
+  int chosen() const { return chosen_; }
+  void set_chosen(int chosen) { chosen_ = chosen; }
+
+  // ContentSettingBubbleModel::Owner:
+  void OnListItemAdded(const ContentSettingBubbleModel::ListItem& item) override {
+    items_.push_back(item.title);
+    changed_();
+  }
+  void OnListItemRemovedAt(int index) override {
+    if (index >= 0 && static_cast<size_t>(index) < items_.size()) {
+      items_.erase(items_.begin() + index);
+      changed_();
+    }
+  }
+  int GetSelectedRadioOption() override { return chosen_; }
+
+ private:
+  std::unique_ptr<ContentSettingBubbleModel> model_;
+  void (^changed_)(void);
+  std::vector<std::u16string> items_;
+  int chosen_ = 0;
+};
+
+}  // namespace
+
+}  // namespace browser_engine
+
+@interface BEChromiumSiteSettingPopover : NSObject <BESiteSettingPopover>
+- (instancetype)initWithModel:(std::unique_ptr<ContentSettingBubbleModel>)model
+    NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
+@implementation BEChromiumSiteSettingPopover {
+  std::unique_ptr<browser_engine::PopoverOwner> _owner;
+}
+
+@synthesize didChange = _didChange;
+
+- (instancetype)initWithModel:(std::unique_ptr<ContentSettingBubbleModel>)model {
+  if ((self = [super init])) {
+    __weak BEChromiumSiteSettingPopover* weakSelf = self;
+    _owner = std::make_unique<browser_engine::PopoverOwner>(std::move(model), ^{
+      BEChromiumSiteSettingPopover* strongSelf = weakSelf;
+      if (strongSelf.didChange) {
+        strongSelf.didChange();
+      }
+    });
+  }
+  return self;
+}
+
+- (void)dealloc {
+  [self close];
+}
+
+- (const ContentSettingBubbleModel::BubbleContent*)content {
+  return _owner ? &_owner->model()->bubble_content() : nullptr;
+}
+
+- (NSString*)title {
+  return self.content ? base::SysUTF16ToNSString(self.content->title) : @"";
+}
+
+- (NSString*)message {
+  return self.content ? base::SysUTF16ToNSString(self.content->message) : @"";
+}
+
+- (NSArray<NSString*>*)items {
+  NSMutableArray<NSString*>* items = [NSMutableArray array];
+  if (_owner) {
+    for (const std::u16string& item : _owner->items()) {
+      [items addObject:base::SysUTF16ToNSString(item)];
+    }
+  }
+  return items;
+}
+
+- (NSArray<NSString*>*)choices {
+  NSMutableArray<NSString*>* choices = [NSMutableArray array];
+  if (self.content) {
+    for (const std::u16string& choice : self.content->radio_group.radio_items) {
+      [choices addObject:base::SysUTF16ToNSString(choice)];
+    }
+  }
+  return choices;
+}
+
+- (NSInteger)chosen {
+  return _owner ? _owner->chosen() : -1;
+}
+
+- (BOOL)canChoose {
+  return self.content && self.content->is_user_modifiable;
+}
+
+- (NSString*)manageTitle {
+  return self.content && self.content->manage_text_style ==
+                             ContentSettingBubbleModel::ManageTextStyle::kButton
+             ? base::SysUTF16ToNSString(self.content->manage_text)
+             : @"";
+}
+
+- (NSString*)doneTitle {
+  return self.content && !self.content->done_button_text.empty()
+             ? base::SysUTF16ToNSString(self.content->done_button_text)
+             : l10n_util::GetNSString(IDS_DONE);
+}
+
+- (void)openItem:(NSInteger)index {
+  if (_owner && index >= 0 &&
+      static_cast<size_t>(index) < _owner->items().size()) {
+    // ContentSettingBubbleContents::LinkClicked(): as a plain click.
+    ui::MouseEvent click(ui::EventType::kMousePressed, gfx::Point(),
+                         gfx::Point(), ui::EventTimeForNow(),
+                         ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
+    _owner->model()->OnListItemClicked(static_cast<int>(index), click);
+  }
+}
+
+- (void)choose:(NSInteger)index {
+  if (_owner && self.canChoose && index >= 0 &&
+      static_cast<size_t>(index) < self.content->radio_group.radio_items.size()) {
+    _owner->set_chosen(static_cast<int>(index));
+  }
+}
+
+- (void)manage {
+  if (_owner) {
+    _owner->model()->OnManageButtonClicked();
+  }
+}
+
+- (void)close {
+  if (!_owner) {
+    return;
+  }
+  // ContentSettingBubbleContents: the choice is committed as the bubble
+  // closes, however it closes.
+  _owner->model()->CommitChanges();
+  _owner.reset();
+}
+
+@end
+
+namespace browser_engine {
+
+id<BESiteSettingPopover> MakeSiteSettingPopover(tabs::TabInterface* tab,
+                                                const std::string& identifier) {
+  content::WebContents* contents = tab ? tab->GetContents() : nullptr;
+  BrowserWindowInterface* browser =
+      tab ? tab->GetBrowserWindowInterface() : nullptr;
+  if (!contents || !browser) {
+    return nil;
+  }
+  std::vector<std::unique_ptr<ContentSettingImageModel>> models =
+      GetVisibleModels(contents);
+  auto it = std::ranges::find_if(
+      models, [contents, &identifier](
+                  const std::unique_ptr<ContentSettingImageModel>& model) {
+        return GetIdentifier(*model, contents) == identifier;
+      });
+  BrowserContentSettingBubbleModelDelegate* delegate =
+      BrowserContentSettingBubbleModelDelegate::From(browser);
+  if (it == models.end() || !delegate) {
+    return nil;
+  }
+  std::unique_ptr<ContentSettingBubbleModel> model =
+      (*it)->CreateBubbleModel(delegate, contents);
+  // The simple bubbles only: the camera's and microphone's have device menus,
+  // and others controls of their own, which stay Chrome's.
+  if (!model || !model->AsSimpleBubbleModel() ||
+      model->AsMediaStreamBubbleModel() ||
+      !model->bubble_content().site_list.empty() ||
+      model->bubble_content().manage_text_style ==
+          ContentSettingBubbleModel::ManageTextStyle::kCheckbox) {
+    return nil;
+  }
+  return [[BEChromiumSiteSettingPopover alloc] initWithModel:std::move(model)];
 }
 
 }  // namespace browser_engine
