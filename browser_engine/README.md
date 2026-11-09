@@ -222,6 +222,18 @@ again, so files no change touches keep their mtimes. Each engine goes to the pre
 when its build failed; the ten newest stay. The app's `scripts/fetch-engine.sh session <commit>`
 waits for one and fetches it.
 
+**The optimised engine in about an hour** (9 Nov): `iterate.yml` with `optimised` starts from a
+saved optimised build (`build.yml` flavor engine; the run in `.github/optimised-base.txt`, or
+`base_run_id`) instead of a dev base. Its build state keeps the ThinLTO cache
+(`out/Default/thinlto-cache`, Chromium's default), so after the changed files compile, the
+framework relinks reusing every module that didn't change. Measured on run 42679690338 (base
+41730416187 from 3 Nov, master of 9 Nov: the layer, patches 25–29, 3,374 ninja steps): 18 min
+download, 13 min unpack, 27 min compile and relink, 62 min end to end, against a day or two from
+scratch and 3 h 15 min for a cold ThinLTO link alone. Changes pile up on an old base (each run
+redoes everything since it), so now and then make a fresh one: `save_base` (about 30 minutes
+more: the state is 37 GB unpacked, 12 GB packed) or a full `build.yml` engine run, and put its
+run id in `.github/optimised-base.txt`.
+
 **Checking on the Mac** (`tools/check.sh`): compiles the layer's sources and the touch points'
 files with the engine build's clang, compile commands and headers, which an iterate run made
 with `pack_headers` uploads (`github_pack_headers.py`: every header in the tree, the generated

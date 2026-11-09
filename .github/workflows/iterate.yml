@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       base_run_id:
-        description: "Run whose github_build_artifact_x86_64 to start from; empty: the one in .github/dev-base.txt"
+        description: "Run whose github_build_artifact_x86_64 to start from; empty: the one in .github/dev-base.txt (.github/optimised-base.txt with optimised)"
         required: false
         type: string
         default: ""
@@ -63,9 +63,11 @@ jobs:
       - name: Copy GitHub specific scripts to git-root folder
         run: cp -va ./.github/scripts/ ./
       - name: Choose the dev base
-        run: echo "BE_BASE_RUN_ID=${INPUT_BASE:-$(cat .github/dev-base.txt)}" | tee -a "$GITHUB_ENV"
+        run: echo "BE_BASE_RUN_ID=${INPUT_BASE:-$(cat ".github/${BASE_FILE}")}" | tee -a "$GITHUB_ENV"
         env:
           INPUT_BASE: ${{ inputs.base_run_id }}
+          # The newest saved optimised build for optimised, the dev base otherwise.
+          BASE_FILE: ${{ inputs.optimised && 'optimised-base.txt' || 'dev-base.txt' }}
       - name: Prepare Xcode
         run: ./github_prepare_xcode.sh
       - name: Disable spotlight
