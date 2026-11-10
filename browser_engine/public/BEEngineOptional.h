@@ -585,4 +585,52 @@ NS_SWIFT_UI_ACTOR
 - (nullable id<BESiteSettingPopover>)siteSettingPopover:(NSString *)identifier;
 @end
 
+// MARK: Split view (10 Nov 2026)
+
+/// Two tabs shown at once, side by side or one above the other, as Chrome's split view keeps
+/// them: next to each other in the strip, both on screen and live, saved with the session and
+/// brought back with it and with ⇧⌘T. The app places both tabs' `view`s in its own layout.
+/// The active tab is the focused pane, which the bar follows; a click in the other pane makes
+/// its tab the active one (`window:didActivateTab:`). (Chrome: `split_tabs::SplitTabData`)
+NS_SWIFT_UI_ACTOR
+@protocol BETabSplit <NSObject>
+/// Stable while the split lasts.
+@property (nonatomic, readonly, copy) NSString *identifier;
+/// The start pane's tab first (left, or the top one when stacked), as in the strip.
+@property (nonatomic, readonly, copy) NSArray<id<BETab>> *tabs;
+/// The start pane's share of the width (or the height when stacked), 0–1.
+@property (nonatomic, readonly) double ratio;
+/// One above the other rather than side by side.
+@property (nonatomic, readonly) BOOL isStacked;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowSplits <NSObject>
+@optional
+/// The window's splits, in strip order; `windowDidChangeTabSplits:` says when they change.
+@property (nonatomic, readonly, copy) NSArray<id<BETabSplit>> *tabSplits;
+/// Makes a split of the tab at `index`, which stays where it is, and the tab at `other`, which
+/// joins it in the start pane (left, or top) if `atStart`, else the end pane. Nil if either
+/// isn't a tab or is already in a split.
+- (nullable NSString *)splitTabAtIndex:(NSInteger)index
+                        withTabAtIndex:(NSInteger)other
+                               atStart:(BOOL)atStart;
+/// The start pane's share, kept within what leaves each pane room; `final` NO while the
+/// divider is still being dragged (saved only once it's let go).
+- (void)setTabSplit:(NSString *)split ratio:(double)ratio final:(BOOL)final;
+- (void)setTabSplit:(NSString *)split stacked:(BOOL)stacked;
+/// The two panes change places.
+- (void)reverseTabSplit:(NSString *)split;
+/// Each tab its own again, where it is in the strip.
+- (void)unsplitTabSplit:(NSString *)split;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowDelegateSplits <NSObject>
+@optional
+/// Splits were made, changed (ratio, sides, layout, a tab replaced) or ended, by the app or by
+/// Chrome (its menus, session restore, a split tab closed or moved out). Once per batch.
+- (void)windowDidChangeTabSplits:(id<BEWindow>)window;
+@end
+
 NS_ASSUME_NONNULL_END

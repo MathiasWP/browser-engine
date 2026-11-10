@@ -259,6 +259,7 @@ int CommandIdForCommand(BECommand command) {
   BOOL _statusUpdatePending;
   BOOL _extensionActionsUpdatePending;
   BOOL _tabGroupsUpdatePending;
+  BOOL _tabSplitsUpdatePending;
 }
 
 @synthesize delegate = _delegate;
@@ -567,6 +568,30 @@ int CommandIdForCommand(BECommand command) {
           if (strongSelf->_window) {
             [strongSelf->_delegate windowDidChangeTabGroups:strongSelf];
           }
+        }
+      }));
+}
+
+- (void)tabSplitsDidChange {
+  // A new split comes as several changes (its tabs moved together, then the
+  // split).
+  if (_tabSplitsUpdatePending) {
+    return;
+  }
+  _tabSplitsUpdatePending = YES;
+  __weak BEChromiumWindow* weakSelf = self;
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(^{
+        BEChromiumWindow* strongSelf = weakSelf;
+        if (!strongSelf) {
+          return;
+        }
+        strongSelf->_tabSplitsUpdatePending = NO;
+        id delegate = strongSelf->_delegate;
+        if (strongSelf->_window &&
+            [delegate respondsToSelector:@selector(windowDidChangeTabSplits:)]) {
+          [(id<BEWindowDelegateSplits>)delegate
+              windowDidChangeTabSplits:strongSelf];
         }
       }));
 }

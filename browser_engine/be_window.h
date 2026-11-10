@@ -78,6 +78,9 @@ NS_ASSUME_NONNULL_BEGIN
 // Chrome wants `group`'s editor shown (OpenTabGroupEditor()). On a later task,
 // after the groups' update, asks the delegate to show it.
 - (void)wantsEditorForTabGroup:(const tab_groups::TabGroupId&)group;
+// A split was made, changed or ended. On a later task, at most once per task,
+// tells the delegate windowDidChangeTabSplits: (be_window_splits.mm).
+- (void)tabSplitsDidChange;
 
 // Called by browser_engine::BEAutocomplete.
 

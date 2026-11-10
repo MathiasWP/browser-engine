@@ -39,6 +39,8 @@
 #include "chrome/browser/ui/tab_ui_helper.h"
 #include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_muted_utils.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/tabs/tab_strip_user_gesture_details.h"
 #include "chrome/common/chrome_isolated_world_ids.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
@@ -106,6 +108,7 @@
 - (instancetype)initWithTab:(tabs::TabInterface*)tab NS_DESIGNATED_INITIALIZER;
 - (void)sendUpdate;
 - (void)contentsDestroyed;
+- (void)pageWasFocused;
 @end
 
 namespace browser_engine {
@@ -228,6 +231,11 @@ class TabObserver : public content::WebContentsObserver,
   // Discarded in place (Memory Saver), the tab keeps its WebContents: the app
   // hears of it here (isDiscarded), and of its reload as it starts loading.
   void WasDiscarded() override { ScheduleUpdate(); }
+  // A click in the other pane of a split focuses its page.
+  void OnWebContentsFocused(
+      content::RenderWidgetHost* render_widget_host) override {
+    [tab_ pageWasFocused];
+  }
   void WebContentsDestroyed() override {
     // The favicon driver, the bookmark helper, the zoom controller, the
     // audible helper and the distillability driver are WebContents user data;
@@ -390,6 +398,29 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   // that signs in without navigating); look again before every update.
   _passwordOffer->Update();
   [_delegate tabDidUpdate:self];
+}
+
+// The page took the keyboard: in the split showing, its pane becomes the
+// focused one, its tab the active one, as in Chrome's split view
+// (MultiContentsViewDelegateImpl::WebContentsFocused()). The app's bar
+// follows on window:didActivateTab:.
+- (void)pageWasFocused {
+  tabs::TabInterface* tab = _handle.Get();
+  BrowserWindowInterface* browser =
+      tab ? tab->GetBrowserWindowInterface() : nullptr;
+  TabStripModel* model = browser ? browser->GetTabStripModel() : nullptr;
+  if (!model || !tab->IsSplit()) {
+    return;
+  }
+  const int index = model->GetIndexOfTab(tab);
+  tabs::TabInterface* active = model->GetActiveTab();
+  if (index == TabStripModel::kNoTab || index == model->active_index() ||
+      !active || active->GetSplit() != tab->GetSplit()) {
+    return;
+  }
+  model->ActivateTabAt(index,
+                       TabStripUserGestureDetails(
+                           TabStripUserGestureDetails::GestureType::kOther));
 }
 
 - (void)contentsDestroyed {
