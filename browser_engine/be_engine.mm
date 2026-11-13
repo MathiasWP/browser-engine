@@ -68,13 +68,14 @@
 // declares it; chrome_exe_main_mac.cc finds it with dlsym().
 extern "C" int ChromeMain(int argc, const char** argv);
 
-@interface BEChromiumEngine : NSObject <BEEngine, BEEnginePalette>
-// The app's delegate while Chromium runs.
-@property(nonatomic, readonly, nullable) id<BEEngineDelegate> delegate;
+@interface BEChromiumEngine ()
 // From the hooks: the main loop runs and startup has made its windows.
 - (void)browserDidStart;
 // From our windows: one became active (OnWindowActivated()).
 - (void)windowDidBecomeActive;
+// From touch point 30: whether the app shows its own profile picker for
+// `entryPoint` (ProfilePicker::EntryPoint).
+- (BOOL)showProfilePicker:(int)entryPoint;
 @end
 
 // BrowserCrApplication's accessibility support, for the app's NSApp
@@ -189,6 +190,10 @@ class EngineHooks : public Hooks {
           auth_required_callback) override {
     return browser_engine::CreateLoginHandler(auth_info, web_contents,
                                               auth_required_callback);
+  }
+
+  bool ShowProfilePicker(int entry_point) override {
+    return [Engine() showProfilePicker:entry_point];
   }
 
   bool RunExternalProtocolDialog(
@@ -509,6 +514,48 @@ void OnWindowActivated() {
     // As choosing a profile in Chrome's Profiles menu: a new window for it.
     profiles::SwitchToProfile(path, /*always_create=*/true);
   }
+}
+
+- (browser_engine::BEProfiles*)profilesModel {
+  return _profiles.get();
+}
+
+- (BOOL)showProfilePicker:(int)entryPoint {
+  id delegate = self.delegate;
+  if (![delegate respondsToSelector:@selector(engine:showProfilePicker:)]) {
+    return NO;
+  }
+  // Chrome keeps its own for what the app's doesn't do: first run, a locked
+  // profile, and Google's own flows.
+  using EntryPoint = ProfilePicker::EntryPoint;
+  BEProfilePickerReason reason;
+  switch (static_cast<EntryPoint>(entryPoint)) {
+    case EntryPoint::kOnStartup:
+    case EntryPoint::kOnStartupNoProfile:
+    case EntryPoint::kNewSessionOnExistingProcess:
+    case EntryPoint::kNewSessionOnExistingProcessNoProfile:
+      reason = BEProfilePickerReasonStartup;
+      break;
+    case EntryPoint::kProfileMenuManageProfiles:
+    case EntryPoint::kAppMenuProfileSubMenuManageProfiles:
+      reason = BEProfilePickerReasonManage;
+      break;
+    case EntryPoint::kProfileMenuAddNewProfile:
+    case EntryPoint::kAppMenuProfileSubMenuAddNewProfile:
+      reason = BEProfilePickerReasonAdd;
+      break;
+    case EntryPoint::kOpenNewWindowAfterProfileDeletion:
+      reason = BEProfilePickerReasonAfterDeletion;
+      break;
+    case EntryPoint::kUnableToCreateBrowser:
+    case EntryPoint::kBackgroundModeManager:
+    case EntryPoint::kProfileIdle:
+      reason = BEProfilePickerReasonOther;
+      break;
+    default:
+      return NO;
+  }
+  return [delegate engine:self showProfilePicker:reason];
 }
 
 - (void)showProfilePickerToAdd:(BOOL)add {

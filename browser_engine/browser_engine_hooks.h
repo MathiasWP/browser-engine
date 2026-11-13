@@ -106,6 +106,10 @@ class Hooks {
       const url::Origin* initiating_origin,
       const content::WeakDocumentPtr& initiator_document,
       const std::u16string& program_name) = 0;
+
+  // ProfilePicker::Show() (touch point 30): true when the app shows its own
+  // picker instead of Chrome's. `entry_point` is ProfilePicker::EntryPoint.
+  virtual bool ShowProfilePicker(int entry_point) = 0;
 };
 
 // Set once by BEEngine before it calls ChromeMain; never unset. Null when the

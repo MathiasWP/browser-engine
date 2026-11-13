@@ -20,6 +20,10 @@
 #include "browser_engine/be_settings_data.h"
 #import "browser_engine/be_closed.h"
 #import "browser_engine/be_engine.h"
+#import "browser_engine/be_extensions_manager.h"
+#import "browser_engine/be_autofill_data.h"
+#import "browser_engine/be_import.h"
+#import "browser_engine/be_passwords_data.h"
 #import "browser_engine/be_extensions.h"
 #include "browser_engine/be_menus.h"
 #import "browser_engine/be_tab.h"
@@ -239,6 +243,12 @@ int CommandIdForCommand(BECommand command) {
   // Settings' own pages' data: made when the app first asks, destroyed with
   // the window.
   std::unique_ptr<browser_engine::BESettingsData> _settingsData;
+  // The app's extensions page, passwords, addresses and cards, and importing:
+  // each made when the app first asks, destroyed with the window.
+  std::unique_ptr<browser_engine::BEExtensionsManager> _extensionsManager;
+  std::unique_ptr<browser_engine::BEPasswordsData> _passwordsData;
+  std::unique_ptr<browser_engine::BEAutofillData> _autofillData;
+  std::unique_ptr<browser_engine::BEImport> _importer;
   // showsBookmarkBar as the delegate last heard it.
   BOOL _showsBookmarkBar;
   BOOL _bookmarkBarUpdatePending;
@@ -410,6 +420,97 @@ int CommandIdForCommand(BECommand command) {
         }));
   }
   return _settingsData.get();
+}
+
+// A closure telling the delegate `tell` on a later task: the models change
+// from inside their own notifications.
+static base::RepeatingClosure TellLater(void (^tell)(void)) {
+  return base::BindRepeating(
+      [](void (^tell)(void)) {
+        base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+            FROM_HERE, base::BindOnce(tell));
+      },
+      tell);
+}
+
+- (browser_engine::BEExtensionsManager*)extensionsManager {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser) {
+    return nullptr;
+  }
+  if (!_extensionsManager) {
+    __weak BEChromiumWindow* weakSelf = self;
+    _extensionsManager = std::make_unique<browser_engine::BEExtensionsManager>(
+        browser->GetProfile(), TellLater(^{
+          BEChromiumWindow* window = weakSelf;
+          id delegate = window.delegate;
+          if ([delegate respondsToSelector:@selector
+                        (windowDidChangeExtensions:)]) {
+            [delegate windowDidChangeExtensions:window];
+          }
+        }));
+  }
+  return _extensionsManager.get();
+}
+
+- (browser_engine::BEPasswordsData*)passwordsData {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser) {
+    return nullptr;
+  }
+  if (!_passwordsData) {
+    __weak BEChromiumWindow* weakSelf = self;
+    _passwordsData = std::make_unique<browser_engine::BEPasswordsData>(
+        browser->GetProfile(), TellLater(^{
+          BEChromiumWindow* window = weakSelf;
+          id delegate = window.delegate;
+          if ([delegate respondsToSelector:@selector
+                        (windowDidChangePasswords:)]) {
+            [delegate windowDidChangePasswords:window];
+          }
+        }));
+  }
+  return _passwordsData.get();
+}
+
+- (browser_engine::BEAutofillData*)autofillData {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser) {
+    return nullptr;
+  }
+  if (!_autofillData) {
+    __weak BEChromiumWindow* weakSelf = self;
+    _autofillData = std::make_unique<browser_engine::BEAutofillData>(
+        browser->GetProfile(),
+        TellLater(^{
+          BEChromiumWindow* window = weakSelf;
+          id delegate = window.delegate;
+          if ([delegate respondsToSelector:@selector
+                        (windowDidChangeAddresses:)]) {
+            [delegate windowDidChangeAddresses:window];
+          }
+        }),
+        TellLater(^{
+          BEChromiumWindow* window = weakSelf;
+          id delegate = window.delegate;
+          if ([delegate respondsToSelector:@selector
+                        (windowDidChangePaymentCards:)]) {
+            [delegate windowDidChangePaymentCards:window];
+          }
+        }));
+  }
+  return _autofillData.get();
+}
+
+- (browser_engine::BEImport*)importer {
+  BrowserWindowInterface* browser = [self browser];
+  if (!browser) {
+    return nullptr;
+  }
+  if (!_importer) {
+    _importer = std::make_unique<browser_engine::BEImport>(browser->GetProfile());
+  }
+  return _importer.get();
 }
 
 - (void)sendExtensionActionsUpdate {
@@ -626,6 +727,11 @@ int CommandIdForCommand(BECommand command) {
   // History's answers still on their way are cancelled with it.
   _history.reset();
   _settingsData.reset();
+  _extensionsManager.reset();
+  _passwordsData.reset();
+  _autofillData.reset();
+  // An import under way goes on to its end (it keeps its profile alive).
+  _importer.reset();
   // An offer still open goes with the window, as the bubble goes with its
   // browser: unless Chrome is shutting down, the crash counts as acknowledged
   // (ExitTypeService::CheckUserAckedCrash()). UNVERIFIED: that runs inside
