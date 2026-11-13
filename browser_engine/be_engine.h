@@ -7,6 +7,31 @@
 #import <Foundation/Foundation.h>
 
 #import "browser_engine/public/BEEngine.h"
+#import "browser_engine/public/BEEngineOptional.h"
+
+namespace browser_engine {
+class BEProfiles;
+}  // namespace browser_engine
+
+NS_ASSUME_NONNULL_BEGIN
+
+// The engine the app holds: be_engine.mm, with parts in other files.
+@interface BEChromiumEngine : NSObject <BEEngine, BEEnginePalette>
+// The app's delegate while Chromium runs.
+@property(nonatomic, readonly, nullable) id<BEEngineDelegate> delegate;
+// The profile list, once Chromium has started; null before.
+- (nullable browser_engine::BEProfiles*)profilesModel;
+@end
+
+// be_task_manager.mm
+@interface BEChromiumEngine (TaskManager) <BEEngineTaskManager>
+@end
+
+// be_engine_profiles.mm
+@interface BEChromiumEngine (Profiles) <BEEngineProfiles>
+@end
+
+NS_ASSUME_NONNULL_END
 
 // The framework's one exported function (listed in chrome/app/framework.exports
 // by patches/browser_engine/). Nil unless `apiVersion` is BE_API_VERSION.

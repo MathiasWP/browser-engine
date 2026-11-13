@@ -1,0 +1,36 @@
+# browser_engine touch point: Chrome shows its profile picker (a Views window
+# with WebUI) at startup with "ask on startup" or no usable profile, from the
+# profile menu's Manage and Add, after a profile is deleted while it's open,
+# and for the idle policy. Every one goes through ProfilePicker::Show(). Inside
+# the app, the layer asks first: the app may show its own picker instead
+# (BEEngineDelegateProfiles), which works on profiles through the layer
+# (be_engine_profiles.mm). Chrome's stays for what the app's doesn't do (first
+# run, locked profiles, Google's own flows) and when the app says no.
+
+diff --git a/chrome/browser/ui/views/profiles/profile_picker_view.cc b/chrome/browser/ui/views/profiles/profile_picker_view.cc
+--- a/chrome/browser/ui/views/profiles/profile_picker_view.cc
++++ b/chrome/browser/ui/views/profiles/profile_picker_view.cc
+@@ -19,6 +19,7 @@
+ #include "base/notreached.h"
+ #include "base/time/time.h"
+ #include "base/trace_event/trace_event.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "build/build_config.h"
+ #include "chrome/app/chrome_command_ids.h"
+ #include "chrome/browser/browser_process.h"
+@@ -161,6 +162,15 @@
+
+ // static
+ void ProfilePicker::Show(Params&& params) {
++  // browser_engine: inside the app, the app may show its own picker in place
++  // of Chrome's (be_engine.mm asks it; be_engine_profiles.mm does what it
++  // chooses).
++  if (browser_engine::IsEmbedded() &&
++      browser_engine::GetHooks()->ShowProfilePicker(
++          static_cast<int>(params.entry_point()))) {
++    return;
++  }
++
+   // Re-open with new params if necessary.
+   if (g_profile_picker_view && g_profile_picker_view->MaybeReopen(params)) {
+     return;

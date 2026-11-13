@@ -654,4 +654,599 @@ NS_SWIFT_UI_ACTOR
 @property (nonatomic, readonly, nullable) NSDate *lastActiveDate;
 @end
 
+// MARK: Extensions manager (13 Nov 2026)
+
+/// Whether an extension runs. (Chrome: developerPrivate's `ExtensionState`)
+typedef NS_ENUM(NSInteger, BEExtensionState) {
+    BEExtensionStateEnabled = 0,
+    BEExtensionStateDisabled = 1,
+    /// Its background stopped (it crashed); reloading starts it again.
+    BEExtensionStateTerminated = 2,
+    /// On Chrome's blocklist: it can't be turned on.
+    BEExtensionStateBlocked = 3,
+};
+
+/// Where an extension may read and change pages. (Chrome: developerPrivate's `HostAccess`)
+typedef NS_ENUM(NSInteger, BEExtensionSiteAccess) {
+    /// Only when its button is clicked.
+    BEExtensionSiteAccessOnClick = 0,
+    /// On the sites in `allowedSites`.
+    BEExtensionSiteAccessOnSpecificSites = 1,
+    /// On every site it asks for.
+    BEExtensionSiteAccessOnAllSites = 2,
+};
+
+/// What of an extension DevTools can inspect.
+typedef NS_ENUM(NSInteger, BEExtensionViewKind) {
+    BEExtensionViewKindServiceWorker = 0,
+    BEExtensionViewKindBackgroundPage = 1,
+    BEExtensionViewKindPopup = 2,
+    BEExtensionViewKindTab = 3,
+    BEExtensionViewKindOffscreen = 4,
+    BEExtensionViewKindOther = 5,
+};
+
+/// One of an extension's keyboard shortcuts. (Chrome: `extensions::Command`)
+NS_SWIFT_UI_ACTOR
+@protocol BEExtensionCommand <NSObject>
+/// Chrome's name for it ("_execute_action"), to set it by.
+@property (nonatomic, readonly, copy) NSString *name;
+/// What it does: "Activate the extension", or the extension's own words.
+@property (nonatomic, readonly, copy) NSString *title;
+/// As the Mac writes it ("⇧⌘Y"); empty for none.
+@property (nonatomic, readonly, copy) NSString *shortcut;
+/// Works while another app is in front.
+@property (nonatomic, readonly) BOOL isGlobal;
+@end
+
+/// Something of an extension's DevTools can inspect: its service worker, background page, a popup.
+NS_SWIFT_UI_ACTOR
+@protocol BEExtensionView <NSObject>
+@property (nonatomic, readonly) BEExtensionViewKind kind;
+@property (nonatomic, readonly, copy) NSURL *url;
+@property (nonatomic, readonly) BOOL isIncognito;
+/// Not running now; inspecting starts it.
+@property (nonatomic, readonly) BOOL isInactive;
+@end
+
+/// An error an extension made, collected while developer mode is on. (Chrome: `ExtensionError`)
+NS_SWIFT_UI_ACTOR
+@protocol BEExtensionError <NSObject>
+/// In its manifest, rather than while it ran.
+@property (nonatomic, readonly) BOOL isManifestError;
+@property (nonatomic, readonly) BOOL isWarning;
+@property (nonatomic, readonly, copy) NSString *message;
+/// The file it came from.
+@property (nonatomic, readonly, copy) NSString *source;
+@property (nonatomic, readonly) NSInteger occurrences;
+@end
+
+/// An extension as Chrome's extensions page shows it: a copy, read again after a change.
+/// (Chrome: developerPrivate's `ExtensionInfo`)
+NS_SWIFT_UI_ACTOR
+@protocol BEExtension <NSObject>
+@property (nonatomic, readonly, copy) NSString *identifier;
+@property (nonatomic, readonly, copy) NSString *name;
+@property (nonatomic, readonly, copy) NSString *version;
+@property (nonatomic, readonly, copy) NSString *summary;
+@property (nonatomic, readonly, nullable) NSImage *icon;
+@property (nonatomic, readonly) BEExtensionState state;
+/// NO when policy decides.
+@property (nonatomic, readonly) BOOL canToggle;
+@property (nonatomic, readonly) BOOL canRemove;
+/// Turned off because it now asks for more: turning it on grants `permissions`, so ask first.
+@property (nonatomic, readonly) BOOL needsPermissionApproval;
+/// Chrome's words about it, a line each: who installed it, why it's off, warnings.
+@property (nonatomic, readonly, copy) NSArray<NSString *> *notices;
+/// The folder an unpacked extension was loaded from; nil for others.
+@property (nonatomic, readonly, copy, nullable) NSString *path;
+/// Where it updates from: the Chrome Web Store's address for the store's extensions.
+@property (nonatomic, readonly, copy) NSString *updateURL;
+@property (nonatomic, readonly, copy, nullable) NSURL *homepage;
+/// What it can do, as Chrome words it ("Read your browsing history"), sites aside.
+@property (nonatomic, readonly, copy) NSArray<NSString *> *permissions;
+/// Whether the user can choose `siteAccess` (it asks for sites).
+@property (nonatomic, readonly) BOOL canChangeSiteAccess;
+@property (nonatomic, readonly) BEExtensionSiteAccess siteAccess;
+/// Sites as "https://example.com/*": those the user allowed it, and those it asks for but wasn't
+/// given.
+@property (nonatomic, readonly, copy) NSArray<NSString *> *allowedSites;
+@property (nonatomic, readonly, copy) NSArray<NSString *> *requestedSites;
+@property (nonatomic, readonly) BOOL canAllowIncognito;
+@property (nonatomic, readonly) BOOL allowsIncognito;
+@property (nonatomic, readonly) BOOL canAllowFileAccess;
+@property (nonatomic, readonly) BOOL allowsFileAccess;
+/// It has a toolbar button, which is pinned.
+@property (nonatomic, readonly) BOOL hasAction;
+@property (nonatomic, readonly) BOOL isPinned;
+@property (nonatomic, readonly) BOOL hasOptions;
+@property (nonatomic, readonly, copy) NSArray<id<BEExtensionCommand>> *commands;
+/// Developer mode: what DevTools can inspect, and its errors.
+@property (nonatomic, readonly, copy) NSArray<id<BEExtensionView>> *views;
+@property (nonatomic, readonly) BOOL collectsErrors;
+@property (nonatomic, readonly, copy) NSArray<id<BEExtensionError>> *errors;
+@end
+
+/// Chrome's extensions page for the window's profile (a private window's: its everyday profile's).
+/// Changes, whoever made them, come as `windowDidChangeExtensions:`. Completions run once, on a
+/// later task, and not at all if the window closes first.
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowExtensionsManager <NSObject>
+@optional
+/// Every extension Chrome's page lists (on, off, blocked, crashed), by name; empty until the first
+/// list is made, which the first read starts.
+@property (nonatomic, readonly, copy) NSArray<id<BEExtension>> *installedExtensions;
+@property (nonatomic, readonly) BOOL extensionsDeveloperMode;
+/// NO under policy.
+@property (nonatomic, readonly) BOOL canChangeExtensionsDeveloperMode;
+- (void)setExtensionsDeveloperModeEnabled:(BOOL)on;
+- (void)setExtension:(NSString *)identifier enabled:(BOOL)enabled;
+/// After the app's own "Remove …?"; NO if Chrome refused (policy).
+- (BOOL)removeExtension:(NSString *)identifier;
+- (void)setExtension:(NSString *)identifier allowsIncognito:(BOOL)allow;
+- (void)setExtension:(NSString *)identifier allowsFileAccess:(BOOL)allow;
+- (void)setExtension:(NSString *)identifier siteAccess:(BEExtensionSiteAccess)access;
+/// `site` as "https://example.com/*"; NO if it isn't one.
+- (BOOL)setExtension:(NSString *)identifier site:(NSString *)site allowed:(BOOL)allowed;
+- (void)setExtension:(NSString *)identifier pinned:(BOOL)pinned;
+/// Its options page, in a tab of this window.
+- (void)openOptionsOfExtension:(NSString *)identifier;
+/// `keys` in Chrome's form: "Command+Shift+Y" (Command, Ctrl for the Control key, Alt, Shift,
+/// then the key); empty clears it. NO if Chrome can't read it. Takes the shortcut from any other
+/// extension that had it.
+- (BOOL)setShortcut:(NSString *)keys forCommand:(NSString *)command ofExtension:(NSString *)identifier;
+- (void)setCommand:(NSString *)command ofExtension:(NSString *)identifier global:(BOOL)global;
+/// While the app records a shortcut, so that extensions' global shortcuts don't fire.
+- (void)setExtensionShortcutsSuspended:(BOOL)suspended;
+/// Developer mode: a folder with a manifest.json; the new extension's identifier, or why not.
+- (void)loadUnpackedExtensionAtPath:(NSString *)path
+                         completion:(void (^)(NSString *_Nullable identifier, NSString *_Nullable error))completion;
+/// Loads it again (an unpacked one from its folder); nil, or why it failed.
+- (void)reloadExtension:(NSString *)identifier completion:(void (^)(NSString *_Nullable error))completion;
+/// Checks every extension for an update now.
+- (void)updateExtensionsWithCompletion:(void (^)(void))completion;
+- (void)inspectExtensionView:(id<BEExtensionView>)view ofExtension:(NSString *)identifier;
+- (void)setExtension:(NSString *)identifier collectsErrors:(BOOL)collects;
+- (void)clearErrorsOfExtension:(NSString *)identifier;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowDelegateExtensions <NSObject>
+@optional
+/// `installedExtensions` changed: installed, removed, turned on or off, a setting, its views,
+/// errors or shortcuts, or developer mode. At most once per task.
+- (void)windowDidChangeExtensions:(id<BEWindow>)window NS_SWIFT_NAME(windowDidChangeExtensions(_:));
+@end
+
+// MARK: Task Manager (13 Nov 2026)
+
+/// What a task is. (Chrome: `task_manager::Task::Type`)
+typedef NS_ENUM(NSInteger, BETaskKind) {
+    BETaskKindBrowser = 0,
+    BETaskKindGPU = 1,
+    BETaskKindUtility = 2,
+    BETaskKindTab = 3,
+    BETaskKindExtension = 4,
+    BETaskKindWorker = 5,
+    BETaskKindSubframe = 6,
+    BETaskKindOther = 7,
+};
+
+/// A line of Chrome's Task Manager as last measured: a copy. Tasks of one process are next to
+/// each other and share its numbers.
+NS_SWIFT_UI_ACTOR
+@protocol BETask <NSObject>
+/// Stable while the task lives.
+@property (nonatomic, readonly) int64_t identifier;
+/// Chrome's words: "Tab: Example", "Extension: Dark Reader", "GPU Process".
+@property (nonatomic, readonly, copy) NSString *title;
+/// A template image when Chrome would tint it.
+@property (nonatomic, readonly, nullable) NSImage *icon;
+@property (nonatomic, readonly) BETaskKind kind;
+/// In Chrome's "Tabs & extensions" rather than "System".
+@property (nonatomic, readonly) BOOL isTabOrExtension;
+@property (nonatomic, readonly, copy) NSString *profileName;
+@property (nonatomic, readonly) int32_t processIdentifier;
+/// Percent of one core; NaN until measured.
+@property (nonatomic, readonly) double cpuUsage;
+/// Bytes; -1 until measured.
+@property (nonatomic, readonly) int64_t memoryFootprint;
+/// Bytes a second; -1 when not measured.
+@property (nonatomic, readonly) int64_t networkUsage;
+/// Its process can be ended: never the browser's, nor under policy.
+@property (nonatomic, readonly) BOOL canEnd;
+@end
+
+/// Chrome's Task Manager, measuring every two seconds while open, as Chrome's window does.
+NS_SWIFT_UI_ACTOR
+@protocol BETaskManager <NSObject>
+/// The browser first, then by process.
+@property (nonatomic, readonly, copy) NSArray<id<BETask>> *tasks;
+/// `tasks` changed: measured again, or a task came or went. At most once per task.
+@property (nonatomic, copy, nullable) void (^didChange)(void);
+/// Shows its tab, in its window.
+- (void)activateTask:(int64_t)identifier;
+/// Ends its process, and every task in it. NO if it didn't end.
+- (BOOL)endTask:(int64_t)identifier;
+/// The task of a tab, to select when opened from its window; -1 for none.
+- (int64_t)taskForTab:(id<BETab>)tab;
+/// Stops measuring: `tasks` stays as it was, and the methods do nothing.
+- (void)close;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEEngineTaskManager <NSObject>
+@optional
+/// Starts measuring; nil before Chromium has started.
+- (nullable id<BETaskManager>)openTaskManager NS_SWIFT_NAME(openTaskManager());
+@end
+
+// MARK: Import (13 Nov 2026)
+
+/// What can be brought over from another browser. (Chrome: `user_data_importer::ImportItem`)
+typedef NS_OPTIONS(NSUInteger, BEImportItems) {
+    BEImportItemHistory = 1 << 0,
+    BEImportItemBookmarks = 1 << 1,
+    BEImportItemPasswords = 1 << 3,
+    BEImportItemSearchEngines = 1 << 4,
+    BEImportItemFormData = 1 << 6,
+};
+
+typedef NS_ENUM(NSInteger, BEImportResult) {
+    BEImportResultSucceeded = 0,
+    /// Nothing came over: unreadable, or the importer stopped.
+    BEImportResultFailed = 1,
+    /// Firefox holds its profile: quit it and try again.
+    BEImportResultBrowserOpen = 2,
+    BEImportResultCancelled = 3,
+};
+
+/// A browser profile to import from. (Chrome: `user_data_importer::SourceProfile`)
+NS_SWIFT_UI_ACTOR
+@protocol BEImportSource <NSObject>
+/// Good until sources are found again.
+@property (nonatomic, readonly, copy) NSString *identifier;
+/// "Safari", "Mozilla Firefox".
+@property (nonatomic, readonly, copy) NSString *name;
+/// Firefox's profile's name; empty for others.
+@property (nonatomic, readonly, copy) NSString *profileName;
+/// What it can give.
+@property (nonatomic, readonly) BEImportItems items;
+/// Its data is there, but macOS keeps it from the app until the app has Full Disk Access.
+@property (nonatomic, readonly) BOOL needsFullDiskAccess;
+@end
+
+/// Imports into the window's profile (a private window's: its everyday profile). Completions run
+/// once, on a later task; an import goes on to its end if the window closes.
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowImport <NSObject>
+@optional
+- (void)findImportSources:(void (^)(NSArray<id<BEImportSource>> *sources))completion;
+/// `progress` as each item starts and ends; `completion` with what came over.
+- (void)importFrom:(NSString *)source
+             items:(BEImportItems)items
+          progress:(nullable void (^)(BEImportItems item, BOOL done))progress
+        completion:(void (^)(BEImportResult result, BEImportItems imported))completion;
+/// A bookmarks file (HTML, as browsers export them): into "Imported", with keywords and icons.
+- (void)importBookmarksFile:(NSURL *)file
+                 completion:(void (^)(BEImportResult result, BEImportItems imported))completion;
+- (void)cancelImport;
+@end
+
+// MARK: Profiles by the app (13 Nov 2026)
+
+/// More of a profile, for the app's own picker and editor; the engine's `BEProfile`s adopt it.
+NS_SWIFT_UI_ACTOR
+@protocol BEProfileDetails <NSObject>
+/// One of `profileAvatarChoices`' indexes.
+@property (nonatomic, readonly) NSInteger avatarIndex;
+/// Its colour; nil for the default.
+@property (nonatomic, readonly, nullable) NSColor *color;
+/// Loaded now: it has windows, or is about to.
+@property (nonatomic, readonly) BOOL isOpen;
+@end
+
+/// An avatar a profile can have. (Chrome: the default avatars)
+NS_SWIFT_UI_ACTOR
+@protocol BEProfileAvatarChoice <NSObject>
+@property (nonatomic, readonly) NSInteger index;
+/// "Cat".
+@property (nonatomic, readonly, copy) NSString *label;
+@property (nonatomic, readonly) NSImage *image;
+@end
+
+/// A colour a profile can have. (Chrome: `kDynamicCustomizeChromeColors`)
+NS_SWIFT_UI_ACTOR
+@protocol BEProfileColorChoice <NSObject>
+@property (nonatomic, readonly, copy) NSString *label;
+@property (nonatomic, readonly) NSColor *color;
+@end
+
+/// Why Chrome would show its profile picker.
+typedef NS_ENUM(NSInteger, BEProfilePickerReason) {
+    /// At startup, with "ask on startup", or with no usable profile.
+    BEProfilePickerReasonStartup = 0,
+    BEProfilePickerReasonManage = 1,
+    BEProfilePickerReasonAdd = 2,
+    /// A profile was just deleted while the picker was open.
+    BEProfilePickerReasonAfterDeletion = 3,
+    BEProfilePickerReasonOther = 4,
+};
+
+NS_SWIFT_UI_ACTOR
+@protocol BEEngineProfiles <NSObject>
+@optional
+@property (nonatomic, readonly, copy) NSArray<id<BEProfileAvatarChoice>> *profileAvatarChoices;
+@property (nonatomic, readonly, copy) NSArray<id<BEProfileColorChoice>> *profileColorChoices;
+/// The avatar drawn from the profile's colour (its initial-less placeholder).
+@property (nonatomic, readonly) NSInteger genericAvatarIndex;
+/// A profile's avatar, `points` big (drawn at twice that).
+- (nullable NSImage *)avatarForProfile:(NSString *)identifier size:(CGFloat)points;
+/// A profile without an account, and a window for it if `openWindow`; `name` nil for Chrome's next
+/// "Person N". `completion` with its identifier, nil if it couldn't be made.
+- (void)createProfileNamed:(nullable NSString *)name
+               avatarIndex:(NSInteger)avatarIndex
+                     color:(nullable NSColor *)color
+                openWindow:(BOOL)openWindow
+                completion:(void (^)(NSString *_Nullable identifier))completion;
+/// NO if `name` is empty or there's no such profile.
+- (BOOL)renameProfile:(NSString *)identifier to:(NSString *)name;
+- (void)setAvatarIndex:(NSInteger)index forProfile:(NSString *)identifier;
+/// nil for the default.
+- (void)setColor:(nullable NSColor *)color forProfile:(NSString *)identifier;
+/// What deleting it would lose, as Chrome's delete dialog counts it: "BrowsingHistory",
+/// "Passwords", "Bookmarks", "Autofill"; `update` again as each count arrives, until stopped.
+- (void)countDataOfProfile:(NSString *)identifier
+                    update:(void (^)(NSDictionary<NSString *, NSNumber *> *counts))update;
+- (void)stopCountingProfileData;
+/// Closes its windows (a page may refuse to leave, which keeps it) and deletes it: watch
+/// `engineDidChangeProfiles:`. Deleting the last profile makes a new one.
+- (void)deleteProfile:(NSString *)identifier;
+/// Chosen in the app's picker: its window, or a new one; at startup with the pages the app was
+/// opened with.
+- (void)pickProfile:(NSString *)identifier;
+- (void)moveProfileAtIndex:(NSInteger)from toIndex:(NSInteger)to;
+@property (nonatomic, readonly) BOOL canCreateProfiles;
+@property (nonatomic, readonly) BOOL guestModeEnabled;
+- (void)openGuestWindow;
+/// Chrome's "Ask on startup", with two profiles or more.
+@property (nonatomic) BOOL showsProfilePickerOnStartup;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEEngineDelegateProfiles <NSObject>
+@optional
+/// Chrome would show its profile picker now: YES when the app shows its own instead.
+- (BOOL)engine:(id<BEEngine>)engine showProfilePicker:(BEProfilePickerReason)reason;
+@end
+
+// MARK: Passwords, addresses and payment cards (13 Nov 2026)
+
+/// A saved sign-in: a username and password on one or more sites, as Chrome's password manager
+/// lists it. Its password and note aren't here: ask for them. (Chrome: `CredentialUIEntry`)
+NS_SWIFT_UI_ACTOR
+@protocol BESavedPassword <NSObject>
+/// For this window; a new one once its username or password changes.
+@property (nonatomic, readonly) int64_t identifier;
+@property (nonatomic, readonly, copy) NSString *username;
+/// "accounts.example.com", as Chrome shows them.
+@property (nonatomic, readonly, copy) NSArray<NSString *> *sites;
+@property (nonatomic, readonly, copy) NSArray<NSURL *> *siteURLs;
+/// Signs in with another site's account ("accounts.google.com"); it has no password then.
+@property (nonatomic, readonly, copy, nullable) NSString *federatedWith;
+@property (nonatomic, readonly) BOOL hasNote;
+@property (nonatomic, readonly, copy, nullable) NSDate *lastUsed;
+@end
+
+/// Passwords for one site, as Chrome groups them (without Google's affiliations: by the site's
+/// registrable domain, "example.com").
+NS_SWIFT_UI_ACTOR
+@protocol BEPasswordGroup <NSObject>
+@property (nonatomic, readonly, copy) NSString *name;
+/// For its icon (`requestHistoryFaviconForURL:`).
+@property (nonatomic, readonly, copy) NSURL *url;
+@property (nonatomic, readonly, copy) NSArray<id<BESavedPassword>> *passwords;
+@end
+
+/// A site Chrome was told never to offer to save a password for.
+NS_SWIFT_UI_ACTOR
+@protocol BENeverSavedSite <NSObject>
+@property (nonatomic, readonly) int64_t identifier;
+@property (nonatomic, readonly, copy) NSString *site;
+@property (nonatomic, readonly, copy) NSURL *url;
+@end
+
+typedef NS_ENUM(NSInteger, BEPasswordEditResult) {
+    BEPasswordEditResultSaved = 0,
+    BEPasswordEditResultNotFound = 1,
+    /// The site has a password for that username already.
+    BEPasswordEditResultUsernameTaken = 2,
+    BEPasswordEditResultEmptyPassword = 3,
+};
+
+typedef NS_ENUM(NSInteger, BEPasswordImportStatus) {
+    BEPasswordImportStatusImported = 0,
+    /// Some rows are for sign-ins saved already: `replacePasswords:` takes the file's.
+    BEPasswordImportStatusConflicts = 1,
+    BEPasswordImportStatusUnreadable = 2,
+    BEPasswordImportStatusTooLarge = 3,
+    /// Another import is running.
+    BEPasswordImportStatusBusy = 4,
+    BEPasswordImportStatusFailed = 5,
+};
+
+/// A row of a passwords file that didn't come in.
+NS_SWIFT_UI_ACTOR
+@protocol BEPasswordImportRow <NSObject>
+@property (nonatomic, readonly) NSInteger identifier;
+@property (nonatomic, readonly, copy) NSString *site;
+@property (nonatomic, readonly, copy) NSString *username;
+/// Why it didn't; empty for a sign-in saved already (a conflict).
+@property (nonatomic, readonly, copy) NSString *problem;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEPasswordImport <NSObject>
+@property (nonatomic, readonly) BEPasswordImportStatus status;
+@property (nonatomic, readonly) NSInteger importedCount;
+@property (nonatomic, readonly, copy) NSArray<id<BEPasswordImportRow>> *rows;
+/// Everything came in: the file (passwords in the clear) can go.
+@property (nonatomic, readonly) BOOL canDeleteFile;
+@end
+
+/// Chrome's password manager for the window's profile (a private window's: its everyday
+/// profile's). Changes, whoever made them, come as `windowDidChangePasswords:`; writes take
+/// effect a moment later, so read again then. Completions run once, on a later task, and not at
+/// all if the window closes first.
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowPasswords <NSObject>
+@optional
+/// By site name; empty until loaded, which the first read starts.
+@property (nonatomic, readonly, copy) NSArray<id<BEPasswordGroup>> *passwordGroups;
+@property (nonatomic, readonly, copy) NSArray<id<BENeverSavedSite>> *neverSavedSites;
+/// After macOS asks who it is (Touch ID or the account's password; not again for five minutes);
+/// nil if refused.
+- (void)revealPassword:(int64_t)identifier
+            completion:(void (^)(NSString *_Nullable password, NSString *_Nullable note))completion;
+/// After the same; copied concealed from clipboard history, and cleared after two minutes unless
+/// replaced.
+- (void)copyPassword:(int64_t)identifier completion:(void (^)(BOOL copied))completion;
+/// NO: not a web address, an empty password, or the username is saved for the site already.
+- (BOOL)addPasswordForSite:(NSString *)site
+                  username:(NSString *)username
+                  password:(NSString *)password
+                      note:(NSString *)note;
+- (BEPasswordEditResult)editPassword:(int64_t)identifier
+                            username:(NSString *)username
+                            password:(NSString *)password
+                                note:(NSString *)note;
+/// A saved password or a never-saved site.
+- (void)removePassword:(int64_t)identifier;
+- (void)undoPasswordRemoval;
+/// A CSV file, after macOS asks who it is (every time).
+- (void)exportPasswordsToFile:(NSURL *)file completion:(void (^)(BOOL exported))completion;
+- (void)importPasswordsFromFile:(NSURL *)file completion:(void (^)(id<BEPasswordImport> result))completion;
+/// The conflicting rows given (by `BEPasswordImportRow.identifier`) replace what's saved.
+- (void)replacePasswords:(NSArray<NSNumber *> *)rows completion:(void (^)(id<BEPasswordImport> result))completion;
+/// Ends an import; deletes the file if asked and it can.
+- (void)finishPasswordImportDeletingFile:(BOOL)deleteFile;
+/// Weak passwords, and groups of passwords used on more than one site, by identifier. (Chrome's
+/// password check without Google: no leaked passwords.)
+- (void)checkPasswordsWithCompletion:(void (^)(NSArray<NSNumber *> *weak,
+                                               NSArray<NSArray<NSNumber *> *> *reused))completion;
+@end
+
+/// A part of an address. (Chrome: the `FieldType`s its address editor offers)
+typedef NS_ENUM(NSInteger, BEAddressField) {
+    BEAddressFieldName = 0,
+    BEAddressFieldOrganization = 1,
+    BEAddressFieldStreet = 2,
+    BEAddressFieldCity = 3,
+    BEAddressFieldState = 4,
+    BEAddressFieldPostalCode = 5,
+    /// Its ISO code ("NO").
+    BEAddressFieldCountry = 6,
+    BEAddressFieldPhone = 7,
+    BEAddressFieldEmail = 8,
+    BEAddressFieldDependentLocality = 9,
+    BEAddressFieldSortingCode = 10,
+};
+
+/// An address Chrome fills forms with. (Chrome: `AutofillProfile`, local)
+NS_SWIFT_UI_ACTOR
+@protocol BEAddress <NSObject>
+/// Stable.
+@property (nonatomic, readonly, copy) NSString *identifier;
+/// "Jane Doe".
+@property (nonatomic, readonly, copy) NSString *label;
+/// "1 Main St, Springfield".
+@property (nonatomic, readonly, copy) NSString *sublabel;
+/// By `BEAddressField`.
+@property (nonatomic, readonly, copy) NSDictionary<NSNumber *, NSString *> *fields;
+@end
+
+/// A field of a country's address form, as Chrome's editor lays it out.
+NS_SWIFT_UI_ACTOR
+@protocol BEAddressFormatField <NSObject>
+@property (nonatomic, readonly) BEAddressField field;
+/// The country's word for it: "ZIP code", "Postcode".
+@property (nonatomic, readonly, copy) NSString *label;
+/// Takes a line of its own.
+@property (nonatomic, readonly) BOOL isLong;
+@property (nonatomic, readonly) BOOL isRequired;
+@end
+
+/// The addresses Chrome fills forms with, for the window's profile. Changes come as
+/// `windowDidChangeAddresses:`.
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowAddresses <NSObject>
+@optional
+/// Empty until loaded.
+@property (nonatomic, readonly, copy) NSArray<id<BEAddress>> *addresses;
+/// Pairs of ISO code and name, by name.
+@property (nonatomic, readonly, copy) NSArray<NSArray<NSString *> *> *addressCountries;
+@property (nonatomic, readonly, copy) NSString *defaultAddressCountry;
+/// The country's form, a line of fields at a time.
+- (NSArray<NSArray<id<BEAddressFormatField>> *> *)addressFormatForCountry:(NSString *)code;
+/// A new address (nil) or a change; its identifier, or nil before the addresses have loaded.
+- (nullable NSString *)saveAddress:(nullable NSString *)identifier
+                            fields:(NSDictionary<NSNumber *, NSString *> *)fields;
+- (void)removeAddress:(NSString *)identifier;
+@end
+
+/// A payment card Chrome fills forms with, kept on this Mac. (Chrome: `CreditCard`, local)
+NS_SWIFT_UI_ACTOR
+@protocol BEPaymentCard <NSObject>
+/// Stable.
+@property (nonatomic, readonly, copy) NSString *identifier;
+/// "Visa".
+@property (nonatomic, readonly, copy) NSString *network;
+/// Chrome's name for the network ("visaCC").
+@property (nonatomic, readonly, copy) NSString *networkIdentifier;
+@property (nonatomic, readonly, copy) NSString *lastFourDigits;
+@property (nonatomic, readonly, copy) NSString *nameOnCard;
+@property (nonatomic, readonly, copy) NSString *nickname;
+@property (nonatomic, readonly) NSInteger expirationMonth;
+@property (nonatomic, readonly) NSInteger expirationYear;
+@property (nonatomic, readonly) BOOL isExpired;
+@property (nonatomic, readonly) BOOL hasSecurityCode;
+@end
+
+/// The payment cards Chrome fills forms with, for the window's profile. Changes come as
+/// `windowDidChangePaymentCards:`.
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowPaymentCards <NSObject>
+@optional
+/// Empty until loaded.
+@property (nonatomic, readonly, copy) NSArray<id<BEPaymentCard>> *paymentCards;
+/// Chrome's "Verify it's you": macOS asks before a card's number shows or fills.
+@property (nonatomic, readonly) BOOL paymentCardsNeedAuthentication;
+/// The whole number and security code, after macOS asks who it is if they need it; nil if
+/// refused.
+- (void)revealPaymentCard:(NSString *)identifier
+               completion:(void (^)(NSString *_Nullable number, NSString *_Nullable securityCode))completion;
+/// A new card (nil) or a change; its identifier, or nil if the number, month, year or nickname
+/// isn't valid.
+- (nullable NSString *)savePaymentCard:(nullable NSString *)identifier
+                                number:(NSString *)number
+                            nameOnCard:(NSString *)name
+                       expirationMonth:(NSInteger)month
+                        expirationYear:(NSInteger)year
+                              nickname:(NSString *)nickname
+                          securityCode:(NSString *)securityCode;
+- (void)removePaymentCard:(NSString *)identifier;
+- (void)removeAllSecurityCodes;
+/// After macOS asks who it is; `changed` NO if refused.
+- (void)setPaymentCardsNeedAuthentication:(BOOL)needed completion:(void (^)(BOOL changed))completion;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowDelegateAutofill <NSObject>
+@optional
+/// Passwords or never-saved sites were added, changed or removed, here or elsewhere.
+- (void)windowDidChangePasswords:(id<BEWindow>)window NS_SWIFT_NAME(windowDidChangePasswords(_:));
+- (void)windowDidChangeAddresses:(id<BEWindow>)window NS_SWIFT_NAME(windowDidChangeAddresses(_:));
+- (void)windowDidChangePaymentCards:(id<BEWindow>)window NS_SWIFT_NAME(windowDidChangePaymentCards(_:));
+@end
+
 NS_ASSUME_NONNULL_END

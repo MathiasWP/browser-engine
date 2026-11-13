@@ -22,8 +22,12 @@ class TabGroupId;
 }  // namespace tab_groups
 
 namespace browser_engine {
+class BEAutofillData;
 class BEBookmarkBar;
+class BEExtensionsManager;
 class BEHistory;
+class BEImport;
+class BEPasswordsData;
 class BESettingsData;
 class BEBrowserWindow;
 }  // namespace browser_engine
@@ -109,6 +113,12 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable browser_engine::BEHistory*)history;
 // Settings' own pages' data, made on first use; null once closed.
 - (nullable browser_engine::BESettingsData*)settingsData;
+// The app's extensions page, passwords, addresses and cards, and importing:
+// each made on first use, for the window's profile; null once closed.
+- (nullable browser_engine::BEExtensionsManager*)extensionsManager;
+- (nullable browser_engine::BEPasswordsData*)passwordsData;
+- (nullable browser_engine::BEAutofillData*)autofillData;
+- (nullable browser_engine::BEImport*)importer;
 
 @end
 
@@ -126,6 +136,25 @@ NS_ASSUME_NONNULL_BEGIN
                    urlTitles:(NSArray<NSString*>*)urlTitles
     NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
+@end
+
+// The app's own pages in place of Chrome's settings and extensions pages, each
+// in its own file.
+
+// be_extensions_manager.mm
+@interface BEChromiumWindow (ExtensionsManager) <BEWindowExtensionsManager>
+@end
+
+// be_passwords_data.mm
+@interface BEChromiumWindow (Passwords) <BEWindowPasswords>
+@end
+
+// be_autofill_data.mm
+@interface BEChromiumWindow (Autofill) <BEWindowAddresses, BEWindowPaymentCards>
+@end
+
+// be_import.mm
+@interface BEChromiumWindow (Import) <BEWindowImport>
 @end
 
 @interface BEChromiumWindow (NativeUI) <BEWindowBookmarkEditing,
