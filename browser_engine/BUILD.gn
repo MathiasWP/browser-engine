@@ -76,6 +76,7 @@ source_set("browser_engine") {
     "be_window.h",
     "be_window.mm",
     "be_window_native_ui.mm",
+    "be_window_splits.mm",
     "public/BEEngine.h",
     "public/BEEngineOptional.h",
   ]
@@ -128,6 +129,7 @@ source_set("browser_engine") {
     "//chrome/browser/ui/tabs:tab_strip",
     "//chrome/browser/ui/tabs:tabs_public",
     "//chrome/browser/ui/tabs:utils",
+    "//chrome/browser/ui/tabs",
     "//chrome/browser/ui/toolbar",
     "//chrome/browser/ui/views:content_setting_bubble_contents",
     "//chrome/browser/ui/views/bookmarks",
@@ -138,6 +140,7 @@ source_set("browser_engine") {
     "//chrome/common",
     "//components/bookmarks/browser",
     "//components/bookmarks/common",
+    "//components/split_tabs",
     "//components/browsing_data/content",
     "//components/browsing_data/core",
     "//components/browser_apis/ui_controllers/toolbar:mojom_data_model",

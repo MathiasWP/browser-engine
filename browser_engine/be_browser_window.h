@@ -290,6 +290,7 @@ class BEBrowserWindow : public BrowserWindow,
                               tabs::TabInterface* tab,
                               int index) override;
   void OnTabGroupChanged(const TabGroupChange& change) override;
+  void OnSplitTabChanged(const SplitTabChange& change) override;
 
   // ui::AcceleratorProvider:
   bool GetAcceleratorForCommandId(int command_id,

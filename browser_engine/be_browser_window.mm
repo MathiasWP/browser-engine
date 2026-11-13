@@ -57,7 +57,10 @@
 #include "components/input/native_web_keyboard_event.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "components/tab_groups/tab_group_visual_data.h"
+#include "components/split_tabs/split_tab_id.h"
+#include "components/tabs/public/split_tab_data.h"
 #include "components/tabs/public/tab_group.h"
+#include "components/tabs/public/tab_interface.h"
 #import "components/remote_cocoa/app_shim/native_widget_ns_window_bridge.h"
 #include "content/public/browser/eye_dropper.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
@@ -1135,6 +1138,24 @@ void BEBrowserWindow::OnTabGroupChanged(const TabGroupChange& change) {
   } else {
     [objc_window_ tabGroupsDidChange];
   }
+}
+
+void BEBrowserWindow::OnSplitTabChanged(const SplitTabChange& change) {
+  // Both panes show at once, so both use the window's colors (form controls,
+  // scrollbars), as the active tab does (OnActiveTabChanged()); a pane that
+  // was never active would have Chrome's defaults.
+  if (split_tabs::SplitTabData* split =
+          change.model->ContainsSplit(change.split_id)
+              ? change.model->GetSplitData(change.split_id)
+              : nullptr) {
+    for (tabs::TabInterface* tab : split->ListTabs()) {
+      if (content::WebContents* contents = tab->GetContents()) {
+        contents->SetColorProviderSource(widget_.get());
+      }
+      [[BEChromiumTab existingTabForTab:tab] scheduleUpdate];
+    }
+  }
+  [objc_window_ tabSplitsDidChange];
 }
 
 // ui::AcceleratorProvider -----------------------------------------------------
