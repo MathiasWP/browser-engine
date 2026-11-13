@@ -10,6 +10,10 @@
 #import "browser_engine/public/BEEngine.h"
 #import "browser_engine/public/BEEngineOptional.h"
 
+namespace content {
+class WebContents;
+}  // namespace content
+
 namespace tabs {
 class TabInterface;
 }  // namespace tabs
@@ -31,6 +35,11 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)forgetTab:(tabs::TabInterface*)tab;
 
 - (instancetype)init NS_UNAVAILABLE;
+
+// The Chrome tab, and its WebContents, while there are any (for the layer's
+// other files, as be_tab_glance.mm).
+- (nullable tabs::TabInterface*)tab;
+- (nullable content::WebContents*)contents;
 
 // The tab's WebContents was replaced (discard, prerender): watch the new one.
 - (void)contentsDidChange;

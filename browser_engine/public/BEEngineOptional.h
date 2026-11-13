@@ -633,4 +633,25 @@ NS_SWIFT_UI_ACTOR
 - (void)windowDidChangeTabSplits:(id<BEWindow>)window;
 @end
 
+// MARK: Tab hover cards (13 Nov 2026)
+
+/// What a tab's hover card shows besides its title, from Chrome's own hover cards: a picture of
+/// the page, the memory it uses, and when it was last shown. (Chrome: `TabHoverCardBubbleView`)
+NS_SWIFT_UI_ACTOR
+@protocol BETabGlance <NSObject>
+@optional
+/// Pictures of the page while `handler` is set, about `pixelSize` big: at once the one Chrome
+/// kept from when the tab was last shown, then a fresh one if a hidden page has to be drawn for
+/// it (`ThumbnailTabHelper`, which needs Chrome's TabHoverCardImages feature). nil stops. NO if
+/// the engine keeps no pictures of this tab.
+- (BOOL)observeThumbnailWithPixelSize:(NSSize)pixelSize handler:(nullable void (^)(NSImage *image))handler;
+/// The memory the tab's page uses, in bytes, as last measured; 0 before the first measure.
+@property (nonatomic, readonly) uint64_t memoryUsage;
+/// Measures the tab's memory again (`TabResourceUsageCollector`), then `completion` with it;
+/// within about two seconds whatever happens.
+- (void)measureMemoryUsage:(void (^)(uint64_t bytes))completion;
+/// When the tab was last the window's active tab (or made, if never).
+@property (nonatomic, readonly, nullable) NSDate *lastActiveDate;
+@end
+
 NS_ASSUME_NONNULL_END
