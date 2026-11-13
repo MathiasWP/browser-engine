@@ -31,6 +31,10 @@ NS_ASSUME_NONNULL_BEGIN
 @interface BEChromiumEngine (Profiles) <BEEngineProfiles>
 @end
 
+// be_devtools_session.mm
+@interface BEChromiumEngine (DevTools) <BEEngineDevTools>
+@end
+
 NS_ASSUME_NONNULL_END
 
 // The framework's one exported function (listed in chrome/app/framework.exports

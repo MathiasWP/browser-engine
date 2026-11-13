@@ -1249,4 +1249,92 @@ NS_SWIFT_UI_ACTOR
 - (void)windowDidChangePaymentCards:(id<BEWindow>)window NS_SWIFT_NAME(windowDidChangePaymentCards(_:));
 @end
 
+// MARK: The DevTools protocol for the app, and agents' tabs (13 Nov 2026)
+
+/// What a DevTools session may do beyond reading and driving its page.
+typedef NS_OPTIONS(NSUInteger, BEDevToolsAccess) {
+    /// Chrome's "trusted" client: may list and make targets (a browser session needs it), and its
+    /// key events reach the browser's own shortcuts. Never for an agent's tab session: an agent
+    /// typing ⌘W would close the tab.
+    BEDevToolsAccessTrusted = 1 << 0,
+    /// May attach to Chrome's own pages (chrome://, the app's own pages' documents).
+    BEDevToolsAccessChromePages = 1 << 1,
+    BEDevToolsAccessReadsFiles = 1 << 2,
+    BEDevToolsAccessWritesFiles = 1 << 3,
+};
+
+/// A connection to a page's (or the browser's) DevTools agent, in the browser's own process: what
+/// Chrome's DevTools front end and `--remote-debugging-pipe` speak, without a port, an approval
+/// prompt, Chrome's automation infobar or `navigator.webdriver`. The app sends the protocol's JSON
+/// messages and gets its replies and events back. (Chrome: `DevToolsAgentHost::AttachClient`)
+NS_SWIFT_UI_ACTOR
+@protocol BEDevToolsSession <NSObject>
+/// The target it's attached to (Chrome's target id).
+@property (nonatomic, readonly, copy) NSString *targetIdentifier;
+/// Replies and events, each one JSON message, on a later task.
+@property (nonatomic, copy, nullable) void (^messageHandler)(NSData *json);
+/// The target went away (its tab closed or was discarded), refused the session, or its page went
+/// where the session's access doesn't reach (chrome:// without `ChromePages`); once, on a later
+/// task.
+@property (nonatomic, copy, nullable) void (^closeHandler)(void);
+@property (nonatomic, readonly) BOOL isAttached;
+/// One protocol message: `{"id": 1, "method": "Page.navigate", "params": {…}}`, with `sessionId`
+/// for a child session.
+- (void)sendMessage:(NSData *)json;
+/// Detaches; the handlers aren't called again.
+- (void)close;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BETabDevTools <NSObject>
+@optional
+/// The tab's target, stable while its page lives (prerendering and replaced documents included);
+/// a discarded tab's page comes back with a new one.
+@property (nonatomic, readonly, copy, nullable) NSString *devToolsTargetIdentifier;
+/// A session on the tab's target, which has only the Target, IO and Tracing domains: the page is
+/// reached with `Target.setAutoAttach` `{"autoAttach": true, "waitForDebuggerOnStart": false,
+/// "flatten": true}` and the `sessionId` of each `Target.attachedToTarget` (again for a page
+/// swapped in). Nil if the tab has no page now. Several can be open at once (Chrome's own DevTools
+/// beside it).
+- (nullable id<BEDevToolsSession>)openDevToolsSessionWithAccess:(BEDevToolsAccess)access
+    NS_SWIFT_NAME(openDevToolsSession(access:));
+/// While an agent works in the tab: it renders, runs its timers and takes input as if in front,
+/// though hidden; isn't discarded; and its pop-up menus don't open on screen. (Chrome: what its
+/// own agent framework does to a tab it acts on.)
+- (void)setAgentActive:(BOOL)active;
+/// The storage an agent's tab keeps to (`BEWindowAgentTabs`); nil for the profile's own.
+@property (nonatomic, readonly, copy, nullable) NSString *storagePartition;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEEngineDevTools <NSObject>
+@optional
+/// A session on the browser itself (every target, made and closed through the protocol's Target
+/// domain): what an external tool such as Playwright needs. Nil before Chromium has started.
+- (nullable id<BEDevToolsSession>)openBrowserDevToolsSessionWithAccess:(BEDevToolsAccess)access
+    NS_SWIFT_NAME(openBrowserDevToolsSession(access:));
+/// The tab of a target, if it's a tab's.
+- (nullable id<BETab>)tabForDevToolsTarget:(NSString *)targetIdentifier;
+@end
+
+/// Tabs for agents, in the user's window but with storage of their own: their cookies, local
+/// storage and cache are kept apart from the profile's and from other agents', and stay signed in
+/// across launches unless kept in memory. Every tab one opens (a link in a new tab,
+/// `window.open`) keeps to its storage. Agents' tabs aren't saved with the session, aren't
+/// discarded, and don't add to the profile's history.
+NS_SWIFT_UI_ACTOR
+@protocol BEWindowAgentTabs <NSObject>
+@optional
+/// A new tab at the end of the window showing `url` in `partition`'s storage (a name the app
+/// makes, the same for every tab of one agent); selected only if `select`. Nil if it couldn't be
+/// made, and for Chrome's own pages (chrome://, extensions'), which keep to the profile's storage.
+- (nullable id<BETab>)openTabWithURL:(NSURL *)url
+                    storagePartition:(NSString *)partition
+                            inMemory:(BOOL)inMemory
+                              select:(BOOL)select;
+/// Deletes what `partition` stored in the window's profile (an agent deleted; its tabs closed
+/// first); `completion` on a later task.
+- (void)deleteStoragePartition:(NSString *)partition completion:(void (^)(void))completion;
+@end
+
 NS_ASSUME_NONNULL_END

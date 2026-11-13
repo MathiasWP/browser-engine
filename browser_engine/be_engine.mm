@@ -18,6 +18,7 @@
 #include "base/strings/strcat.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_engine/be_agent_tabs.h"
 #import "browser_engine/be_bookmarks.h"
 #include "browser_engine/be_browser_window.h"
 #import "browser_engine/be_closed.h"
@@ -57,6 +58,7 @@
 #include "content/public/browser/browser_accessibility_state.h"
 #import "content/public/browser/native_event_processor_mac.h"
 #include "content/public/browser/scoped_accessibility_mode.h"
+#include "content/public/browser/site_instance.h"
 #include "content/public/common/content_features.h"
 #include "net/base/apple/url_conversions.h"
 #include "ui/accessibility/ax_mode.h"
@@ -127,6 +129,8 @@ class EngineHooks : public Hooks {
       // Chrome has installed its app-modal dialog factory by now
       // (ChromeBrowserMainExtraPartsViews).
       InstallAppModalDialogFactory();
+      // Before the app can open an agent's tab in the profile.
+      FinishDeletingAgentStorage(browser->GetProfile());
     }
   }
 
@@ -194,6 +198,21 @@ class EngineHooks : public Hooks {
 
   bool ShowProfilePicker(int entry_point) override {
     return [Engine() showProfilePicker:entry_point];
+  }
+
+  bool IsAgentTab(content::WebContents* contents) override {
+    return browser_engine::IsAgentTab(contents);
+  }
+
+  scoped_refptr<content::SiteInstance> GetSiteInstanceForNewTab(
+      const NavigateParams& params,
+      const GURL& url) override {
+    return GetSiteInstanceForNewAgentTab(params, url);
+  }
+
+  bool IsAgentStoragePath(
+      const base::FilePath& relative_partition_path) override {
+    return browser_engine::IsAgentStoragePath(relative_partition_path);
   }
 
   bool RunExternalProtocolDialog(

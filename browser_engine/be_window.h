@@ -157,6 +157,10 @@ NS_ASSUME_NONNULL_BEGIN
 @interface BEChromiumWindow (Import) <BEWindowImport>
 @end
 
+// be_agent_tabs.mm: agents' tabs, with storage of their own.
+@interface BEChromiumWindow (AgentTabs) <BEWindowAgentTabs>
+@end
+
 @interface BEChromiumWindow (NativeUI) <BEWindowBookmarkEditing,
                                         BEWindowTabCommands,
                                         BEWindowFind,

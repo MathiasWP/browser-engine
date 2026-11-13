@@ -1,9 +1,9 @@
 // The one way Chromium's own code calls into //browser_engine.
 //
 // The touch-point patches in patches/browser_engine/ include only this header.
-// It declares nothing but forward-declared types (and base's callback and weak
-// pointer templates), so it never pulls the layer's headers into Chromium
-// files, and changing the layer recompiles none of them.
+// It declares nothing but forward-declared types (and base's callback, weak
+// pointer and scoped_refptr templates), so it never pulls the layer's headers
+// into Chromium files, and changing the layer recompiles none of them.
 
 #ifndef BROWSER_ENGINE_BROWSER_ENGINE_HOOKS_H_
 #define BROWSER_ENGINE_BROWSER_ENGINE_HOOKS_H_
@@ -13,14 +13,21 @@
 #include <string>
 
 #include "base/functional/callback_forward.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 
 class BrowserWindow;
 class BrowserWindowInterface;
 class GURL;
 class LoginHandler;
+struct NavigateParams;
+
+namespace base {
+class FilePath;
+}  // namespace base
 
 namespace content {
+class SiteInstance;
 class WeakDocumentPtr;
 class WebContents;
 }  // namespace content
@@ -110,6 +117,30 @@ class Hooks {
   // ProfilePicker::Show() (touch point 30): true when the app shows its own
   // picker instead of Chrome's. `entry_point` is ProfilePicker::EntryPoint.
   virtual bool ShowProfilePicker(int entry_point) = 0;
+
+  // Agents' tabs (be_agent_tabs.mm, touch point 32): whether `contents`
+  // keeps to an agent's own storage. Such a tab adds nothing to the profile's
+  // history (history_tab_helper.cc), isn't saved with the session or in
+  // recently closed (session_tab_helper_factory.cc, session_service_base.cc,
+  // content_live_tab.cc) and isn't discarded (tab_lifecycle_unit.cc). False
+  // for a WebContents being destroyed.
+  virtual bool IsAgentTab(content::WebContents* contents) = 0;
+
+  // browser_navigator.cc (touch point 31): the SiteInstance a new tab or
+  // window that `params` opens at `url` starts in, when the page it's opened
+  // from keeps to an agent's storage (a link opened in a new tab with ⌘, a
+  // middle click or the page's menu), so that it keeps to it too; null for
+  // Chrome's choice.
+  virtual scoped_refptr<content::SiteInstance> GetSiteInstanceForNewTab(
+      const NavigateParams& params,
+      const GURL& url) = 0;
+
+  // profile_network_context_service.cc (touch point 33): whether the
+  // StoragePartition at `relative_partition_path` (from the profile's
+  // directory) is an agent's on disk, whose session cookies are kept across
+  // launches as the profile's own are when it restores its session.
+  virtual bool IsAgentStoragePath(
+      const base::FilePath& relative_partition_path) = 0;
 };
 
 // Set once by BEEngine before it calls ChromeMain; never unset. Null when the

@@ -1,0 +1,36 @@
+# browser_engine touch point: an agent's storage (BEWindowAgentTabs,
+# be_agent_tabs.mm) keeps its session cookies across launches, so agents stay
+# signed in where sites sign in with session cookies. Chrome keeps them only
+# for a profile's main partition, when it restores its session; every other
+# partition's are dropped at quit (as ProfileImplIOData did for apps). The
+# layer says which partitions are agents' (Hooks::IsAgentStoragePath(), their
+# directory Storage/ext/<agent's domain>/…). As the Shuttle browser does for
+# its agents (fork commit 46).
+
+diff --git a/chrome/browser/net/profile_network_context_service.cc b/chrome/browser/net/profile_network_context_service.cc
+--- a/chrome/browser/net/profile_network_context_service.cc
++++ b/chrome/browser/net/profile_network_context_service.cc
+@@ -30,6 +30,7 @@
+ #include "base/task/task_traits.h"
+ #include "base/task/thread_pool.h"
+ #include "base/trace_event/trace_event.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "build/build_config.h"
+ #include "build/chromeos_buildflags.h"
+ #include "chrome/browser/browser_features.h"
+@@ -1445,6 +1446,15 @@
+           profile_->ShouldRestoreOldSessionCookies();
+       network_context_params->persist_session_cookies =
+           profile_->ShouldPersistSessionCookies();
++    } else if (browser_engine::IsEmbedded() &&
++               browser_engine::GetHooks()->IsAgentStoragePath(
++                   relative_partition_path)) {
++      // browser_engine: an agent's storage (be_agent_tabs.mm) keeps its
++      // session cookies across launches, as the main partition does when the
++      // session is restored: agents stay signed in where sites sign in with
++      // them.
++      network_context_params->restore_old_session_cookies = true;
++      network_context_params->persist_session_cookies = true;
+     } else {
+       // Copy behavior of ProfileImplIOData::InitializeAppRequestContext.
+       network_context_params->restore_old_session_cookies = false;

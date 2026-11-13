@@ -48,6 +48,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+// be_devtools_session.mm: the DevTools protocol on the tab, an agent acting in
+// it, and the agent storage it keeps to (be_agent_tabs.mm).
+@interface BEChromiumTab (DevTools) <BETabDevTools>
+@end
+
 NS_ASSUME_NONNULL_END
 
 #endif  // BROWSER_ENGINE_BE_TAB_H_

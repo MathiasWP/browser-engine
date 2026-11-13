@@ -1,0 +1,129 @@
+# browser_engine touch point: agents' tabs (BEWindowAgentTabs, be_agent_tabs.mm)
+# keep to the agent's own StoragePartition of the window's profile, made with
+# SiteInstance::CreateForFixedStoragePartition(), which content keeps across
+# navigations. These are the ways out the Shuttle browser found (its fork
+# commits 007d52a391, d41e90fc1f, 328c36624a; BSD-licensed), where a page
+# would land in the profile's own storage:
+# - site_instance_impl.cc: a page starting blank or passing through
+#   about:blank. A SiteInstance without a site reported the default partition,
+#   and the SiteInstances its navigations made took it from there: the fixed
+#   partition now binds the BrowsingInstance from the start, and site-less
+#   SiteInstances in it report that partition.
+# - web_contents_impl.cc: windows opened without an opener (noopener,
+#   target=_blank links) got a new SiteInstance in the default partition;
+#   from a fixed partition they keep to it, as guests' do.
+# - browser_navigator.cc: a link opened in a new tab or window with ⌘, ⇧ or a
+#   middle click, or from the page's menu: the layer gives the new tab a
+#   SiteInstance in the agent's partition (Hooks::GetSiteInstanceForNewTab()).
+#   Windows opened with an opener share its SiteInstance already.
+
+diff --git a/content/browser/site_instance_impl.cc b/content/browser/site_instance_impl.cc
+--- a/content/browser/site_instance_impl.cc
++++ b/content/browser/site_instance_impl.cc
+@@ -14,6 +14,7 @@
+ #include "base/no_destructor.h"
+ #include "base/notreached.h"
+ #include "base/trace_event/typed_macros.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "content/browser/bad_message.h"
+ #include "content/browser/isolated_origin_util.h"
+ #include "content/browser/isolation_context.h"
+@@ -115,6 +116,29 @@
+       is_for_service_worker_(false),
+       process_assignment_(SiteInstanceProcessAssignment::UNKNOWN) {
+   CHECK(browsing_instance, base::NotFatalUntil::M158);
++  // browser_engine: until it has a site (about:blank), a SiteInstance of a
++  // BrowsingInstance bound to a fixed StoragePartition (an agent's tab, see
++  // CreateForUrlInfo()) is in that partition, not the default one: the
++  // SiteInstances its navigations make take their partition from it, and the
++  // tab would leave the agent's storage for good. SiteInfo(BrowserContext*),
++  // in the BrowsingInstance's partition. (Shuttle's fix, BSD-licensed.)
++  if (browser_engine::IsEmbedded() &&
++      browsing_instance->is_fixed_storage_partition() &&
++      !browsing_instance->isolation_context().is_guest() &&
++      browsing_instance->storage_partition_config_.has_value()) {
++    BrowserContext* browser_context =
++        browsing_instance->isolation_context().browser_context();
++    site_info_ = SiteInfo(
++        AgentClusterKey(), /*site_url=*/GURL(), /*is_sandboxed=*/false,
++        UrlInfo::kInvalidUniqueSandboxId,
++        browsing_instance->storage_partition_config_.value(),
++        WebExposedIsolationInfo::CreateNonIsolated(),
++        WebExposedIsolationLevel::kNotIsolated, /*is_guest=*/false,
++        /*does_site_request_dedicated_process_for_coop=*/false,
++        /*is_jit_disabled=*/false, /*are_v8_optimizations_disabled=*/false,
++        /*is_fenced=*/false, browser_context->UniqueToken(),
++        EmbedderIsolationInfo::CreateNone());
++  }
+ }
+ 
+ SiteInstanceImpl::~SiteInstanceImpl() {
+@@ -165,6 +189,13 @@
+                            url_info.web_exposed_isolation_info.value_or(
+                                WebExposedIsolationInfo::CreateNonIsolated()),
+                            is_guest, is_fenced, is_fixed_storage_partition));
++  // browser_engine: a fixed StoragePartition binds the BrowsingInstance at
++  // once, not when a SiteInstance in it first gets a site, so that one made
++  // for about:blank, which gets none, keeps to it (see the constructor).
++  if (browser_engine::IsEmbedded() && is_fixed_storage_partition &&
++      !is_guest && url_info.storage_partition_config.has_value()) {
++    instance->storage_partition_config_ = url_info.storage_partition_config;
++  }
+ 
+   // Note: The |allow_default_instance| value used here MUST match the value
+   // used in DoesSiteForURLMatch().
+diff --git a/content/browser/web_contents/web_contents_impl.cc b/content/browser/web_contents/web_contents_impl.cc
+--- a/content/browser/web_contents/web_contents_impl.cc
++++ b/content/browser/web_contents/web_contents_impl.cc
+@@ -54,6 +54,7 @@
+ #include "base/trace_event/optional_trace_event.h"
+ #include "base/trace_event/trace_event.h"
+ #include "base/trace_event/trace_session_observer.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "build/build_config.h"
+ #include "cc/input/browser_controls_offset_tag_modifications.h"
+ #include "components/download/public/common/download_stats.h"
+@@ -5779,6 +5780,15 @@
+       // as long as they preserve the guest's StoragePartition.
+       site_instance =
+           SiteInstance::CreateForGuest(GetBrowserContext(), partition_config);
++    } else if (browser_engine::IsEmbedded() &&
++               source_site_instance->IsFixedStoragePartition() &&
++               !partition_config.is_default()) {
++      // browser_engine: so do windows opened from a page kept to a fixed
++      // StoragePartition (an agent's tab), with noopener or by a
++      // target=_blank link, or they'd be in the default partition.
++      // (Shuttle's fix, BSD-licensed.)
++      site_instance = SiteInstance::CreateForFixedStoragePartition(
++          GetBrowserContext(), params.target_url, partition_config);
+     } else {
+       site_instance = SiteInstance::Create(GetBrowserContext());
+     }
+diff --git a/chrome/browser/ui/navigator/browser_navigator.cc b/chrome/browser/ui/navigator/browser_navigator.cc
+--- a/chrome/browser/ui/navigator/browser_navigator.cc
++++ b/chrome/browser/ui/navigator/browser_navigator.cc
+@@ -18,6 +18,7 @@
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/task/single_thread_task_runner.h"
+ #include "base/trace_event/trace_event.h"
++#include "browser_engine/browser_engine_hooks.h"  // nogncheck
+ #include "build/build_config.h"
+ #include "chrome/browser/apps/app_service/web_contents_app_id_utils.h"
+ #include "chrome/browser/apps/link_capturing/link_capturing_tab_data.h"
+@@ -507,6 +508,16 @@
+       params.opener ? params.opener->GetSiteInstance()
+                     : tab_util::GetSiteInstanceForNewTab(
+                           params.browser->GetProfile(), url);
++  // browser_engine: a tab or window opened from a page that keeps to an
++  // agent's storage (a link opened in a new tab with a modifier or the page's
++  // menu) keeps to it too (be_agent_tabs.mm).
++  if (browser_engine::IsEmbedded() && !params.opener) {
++    if (scoped_refptr<content::SiteInstance> agent_site_instance =
++            browser_engine::GetHooks()->GetSiteInstanceForNewTab(params,
++                                                                 url)) {
++      initial_site_instance_for_new_contents = std::move(agent_site_instance);
++    }
++  }
+ 
+   WebContents::CreateParams create_params(
+       params.browser->GetProfile(), initial_site_instance_for_new_contents);

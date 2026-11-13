@@ -7,6 +7,7 @@
 #include "base/strings/strcat.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
+#import "browser_engine/be_agent_tabs.h"
 #import "browser_engine/be_window.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
@@ -19,6 +20,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+#include "chrome/browser/ui/browser_window/public/browser_window_interface_iterator.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
 #include "chrome/browser/ui/tabs/tab_enums.h"
@@ -37,6 +39,7 @@
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/search_engines/template_url_starter_pack_data.h"
+#include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
@@ -223,6 +226,34 @@ bool IsKeywordInput(const std::u16string& text, Profile* profile) {
          template_url->CanBeUsedForKeywordMatching();
 }
 
+// Whether `match` offers only agents' tabs: an open-tab match for a page
+// that no tab of the profile but an agent's shows. Agents' pages aren't the
+// user's to be offered, as they aren't in the history the other suggestions
+// come from (be_agent_tabs.mm). Chrome's tab matcher matches tabs by their
+// committed address, in windows of the same profile (TabMatcherDesktop).
+bool OffersOnlyAgentTabs(const AutocompleteMatch& match, Profile* profile) {
+  if (!IsTabSwitch(match)) {
+    return false;
+  }
+  bool agent_tab = false;
+  bool other_tab = false;
+  ForEachCurrentBrowserWindowInterfaceOrderedByActivation(
+      [&](BrowserWindowInterface* browser) {
+        if (browser->GetProfile() != profile) {
+          return true;
+        }
+        for (tabs::TabInterface* tab : *browser->GetTabStripModel()) {
+          content::WebContents* contents = tab->GetContents();
+          if (contents->GetLastCommittedURL() != match.destination_url) {
+            continue;
+          }
+          (browser_engine::IsAgentTab(contents) ? agent_tab : other_tab) = true;
+        }
+        return !other_tab;
+      });
+  return agent_tab && !other_tab;
+}
+
 }  // namespace
 
 BEAutocomplete::BEAutocomplete(BrowserWindowInterface* browser,
@@ -365,7 +396,7 @@ void BEAutocomplete::SendUpdate() {
   for (const AutocompleteMatch& match : result) {
     NSURL* url =
         CanOpen(match) ? net::NSURLWithGURL(match.destination_url) : nil;
-    if (!url) {
+    if (!url || OffersOnlyAgentTabs(match, browser_->GetProfile())) {
       continue;
     }
     const BESuggestionKind kind = KindForMatch(

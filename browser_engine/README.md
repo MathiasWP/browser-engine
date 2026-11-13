@@ -82,7 +82,7 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 |---|---|
 | `BUILD.gn` | `:hooks` (dependency-free, what Chromium's files include) and `:browser_engine` (the layer; linked into the framework via `//chrome:chrome_dll`) |
 | `public/BEEngine.h` | The interface, verbatim from the app |
-| `browser_engine_hooks.{h,cc}` | `browser_engine::Hooks`, `IsEmbedded()`: the only thing the touch points call |
+| `browser_engine_hooks.{h,cc}` | `browser_engine::Hooks`, `IsEmbedded()`: the only thing the touch points call (content's two in touch point 31 only `IsEmbedded()`) |
 | `be_engine.{h,mm}` | `BEEngineCreate`, `BEChromiumEngine` (`BEEngine`), the hooks implementation, NSApp stand-ins, and BrowserCrApplication's accessibility activation (`BEAppAccessibility`) |
 | `be_preferences.{h,mm}` | `BEChromiumPreferences` (`BEPreferences`): the last used profile's `PrefService`, then Local State |
 | `be_downloads.{h,mm}` | `BEDownloads`: the downloads of every profile with one of our windows (`AllDownloadItemNotifier`), as `BEDownload` objects; keep and discard as Chrome's download bubble does |
@@ -109,6 +109,8 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 | `be_page_info.{h,mm}` | `BEChromiumSiteInfo` (`BESiteInfo`): Chrome's `PageInfo` for the page with our `PageInfoUI`, which keeps what it shows (the security summary, permissions, cookies) in Chrome's words; the app's permission changes go through `PageInfo::OnSitePermissionChanged()` as the bubble's do |
 | `be_extensions_manager.{h,mm}` | `BEExtensionsManager`: the app's extensions page for a window's profile (`BEWindowExtensionsManager`): Chrome's `ExtensionInfoGenerator` (what chrome://extensions shows), the developerPrivate and management functions' calls for every action, `DeveloperPrivateEventRouter`'s observers for changes; options pages open as tabs, never chrome://extensions/?options= |
 | `be_task_manager.{h,mm}` | `BEChromiumTaskManager` (`BETaskManager`, from `BEEngineTaskManager`): Chrome's `TaskManagerInterface` observed every 2 s for CPU, memory and network, as its own window does; ids checked with `IsTaskValid` before every call |
+| `be_devtools_session.{h,mm}` | The DevTools protocol for the app: `BEChromiumDevToolsSession` (`BEDevToolsSession`), an in-process `DevToolsAgentHostClient` (as `--remote-debugging-pipe`'s, without its switch: no infobar, `navigator.webdriver` false) on a tab's tab target (`BETabDevTools`; the page through `Target.setAutoAttach` flatten) or a new browser target (`BEEngineDevTools`), access as `IsTrusted`/`MayAttachToURL`/`MayRead`/`MayWriteLocalFiles`, messages on a later task; `setAgentActive:` as Chrome's actor holds a tab it acts on (`ActorTask::DidContentsEnterActorControl()`: a visible, awake capture, page focus, in-page `<select>` menus) and not discardable |
+| `be_agent_tabs.{h,mm}` | Agents' tabs (`BEWindowAgentTabs`, `BETab.storagePartition`), Shuttle's model: a StoragePartition of the window's profile per agent (domain `beagent` + 32 letters of the name's SHA-256, the name as partition name), tabs made with `SiteInstance::CreateForFixedStoragePartition()` at the end of the strip; new tabs opened from them keep to it (touch point 31), they're kept out of history, sessions, recently closed, discarding (32) and the address bar's open tabs (`be_autocomplete.mm`), and keep their session cookies (33). Deleting: caches, then `AsyncObliterateStoragePartition()`, and the HTTP cache's directory in `~/Library/Caches`, which that leaves; a partition still loaded is emptied, and its directories removed at the next launch (a marker in `Storage/be_deleted_agents/`) |
 | `be_passwords_data.{h,mm}` | `BEPasswordsData`: the app's passwords page for a window's profile (`BEWindowPasswords`): a `SavedPasswordsPresenter`, `InsecureCredentialsManager` (weak and reused only), CSV export and import (`PasswordManagerExporter`, `PasswordImporter`), and `BEAuthentication` (macOS's check of who's there, one at a time, as Chrome's device authenticator does it) |
 | `be_autofill_data.{h,mm}` | `BEAutofillData`: the app's addresses and payment cards sheets (`BEWindowAddresses`, `BEWindowPaymentCards`): the profile's `AddressDataManager` and `PaymentsDataManager`, local data only, each country's address form, Chrome's card checks and "Verify it's you" |
 | `be_import.{h,mm}` | `BEImport`: importing into a window's profile (`BEWindowImport`): `ImporterList` and `ExternalProcessImporterHost`, headless, each import owning itself with its profile kept alive; Safari's bookmarks need Full Disk Access, which the sources say |
@@ -163,6 +165,9 @@ patches), and checked with `git apply --check` the way the build applies them.
 | 28 | `chrome/browser/ui/views/login_handler_views.cc` | HTTP sign-in: `LoginHandler::Create()` asks the layer first, which returns its own `LoginHandler` (the app's dialog, filled from the password manager) |
 | 29 | `chrome/browser/ui/views/external_protocol_dialog.cc` | "Open <app>?": `RunExternalProtocolDialog()` asks the layer first, which asks in the app and launches as the dialog's Open does |
 | 30 | `chrome/browser/ui/views/profiles/profile_picker_view.cc` | `ProfilePicker::Show()` asks the layer first (`Hooks::ShowProfilePicker`), which asks the app (`engine:showProfilePicker:`): the app's own picker at startup and for Manage and Add; Chrome's for first run, a locked profile and Google's flows |
+| 31 | `content/browser/site_instance_impl.cc`, `content/browser/web_contents/web_contents_impl.cc`, `chrome/browser/ui/navigator/browser_navigator.cc` | Agents' tabs keep to their StoragePartition where Shuttle found pages leaving it (its fixes, BSD-licensed): a fixed partition binds its BrowsingInstance from the start and site-less SiteInstances (about:blank) report it; noopener and `target=_blank` windows from a fixed partition keep to it, as guests' do; a link opened in a new tab or window (⌘, middle click, the page's menu) gets a SiteInstance in the opener's agent partition (`Hooks::GetSiteInstanceForNewTab`, from the link's frame, never `source_contents`, which Navigate() fills with the active tab) |
+| 32 | `chrome/browser/history/history_tab_helper.cc`, `chrome/browser/sessions/session_tab_helper_factory.cc`, `chrome/browser/sessions/session_service_base.cc`, `components/sessions/content/content_live_tab.cc`, `chrome/browser/resource_coordinator/tab_lifecycle_unit.cc` | Agents' tabs (`Hooks::IsAgentTab`) add no history (as a private window's), aren't saved with the session (no SessionTabHelper delegate, skipped when rebuilt: a saved tab without navigations isn't restored), aren't in recently closed (left out as never loaded, alone or with their window or group) and are never discarded (a discard's new WebContents would be in the profile's own storage) |
+| 33 | `chrome/browser/net/profile_network_context_service.cc` | An agent's partition on disk keeps its session cookies across launches (`Hooks::IsAgentStoragePath`), as the main partition does when the session is restored; Chrome drops every other partition's. Agents stay signed in where sites sign in with session cookies (Shuttle's fork commit 46) |
 
 **Webium's other `BrowserWindowFeatures` arms, and why there's no patch for them:**
 - `BrowserElementsWebUiBrowser`: with Webium off, features make `BrowserElementsViewsImpl`;
@@ -374,6 +379,22 @@ last finished job's saved state.
 - **Answer the restore offer.** After a crash, `offersRestoreAfterCrash` is set on the startup
   window; until the app calls `restoreAfterCrash` or `declineRestoreAfterCrash`, Chrome saves no
   new session.
+- **DevTools sessions and agents' tabs (13 Nov).** A tab's session is on its tab target, which
+  has only Target, IO and Tracing: send `Target.setAutoAttach {autoAttach: true,
+  waitForDebuggerOnStart: false, flatten: true}` first, then the page's commands with the
+  `sessionId` of `Target.attachedToTarget`, which comes again for each page swapped in. For
+  agents, access 0: untrusted (no `Target.createTarget`/`getTargets`, typed keys don't reach
+  Chrome's or the app's shortcuts), and going to a chrome:// page ends the session. The close
+  handler also comes when Chrome refuses the session (DevTools policy) and when the tab closes;
+  open a new one then. A browser session needs `Trusted`; its `Target.createTarget` opens tabs in
+  the profile's own storage, so a relay for agents rewrites or refuses it. `setAgentActive:YES`
+  only while acting (it keeps the Mac awake, as Chrome's actor does), `NO` after. Agents' tabs:
+  open them from the app's own events, never inside a tab-strip event; the app groups them. Nil
+  for Chrome's own pages (chrome://, extensions), which keep to the profile's storage. A tab an
+  agent's page opens is the agent's too (`storagePartition`), and none is restored after a
+  relaunch: the app reopens what it needs. Close an agent's tabs before
+  `deleteStoragePartition:`. Shared with the profile still: permissions and site settings, the
+  downloads list, extensions, password and autofill offers, saved favicons.
 - **Arguments.** Suggested: `--no-first-run --no-default-browser-check
   --disable-features=Glic` (below).
 
@@ -494,6 +515,13 @@ Marked in code with `// UNVERIFIED:`, plus what reading couldn't settle:
    shown (`TabSharingInfoBar::GetStatusMessageViewForTesting()`: a label, or the status
    view's accessible name, set without a widget). Read, not run, like the whole tab-sharing
    path in our windows (`TabSharingUIViews` adding infobars to every tab of every browser).
+8. DevTools sessions and agents' tabs (13 Nov), compiled, never run: that an agent's tab
+   stays in its partition through about:blank, `window.open` with and without an opener,
+   `target=_blank`, ⌘/middle clicks and "Open link in new tab" (touch points 31; content's
+   `CHECK`s on a BrowsingInstance's partition, which the binding must satisfy); that history,
+   sessions, recently closed and discarding leave it out (32) and its session cookies survive a
+   relaunch (33); hidden agent-active tabs' rAF, timers, focus and in-page `<select>`; screenshots
+   of a background tab never shown (its view may be 0×0 until the app sizes it).
 
 ## Open questions
 

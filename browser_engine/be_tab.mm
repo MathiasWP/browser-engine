@@ -15,6 +15,7 @@
 #include "base/scoped_observation.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
+#import "browser_engine/be_agent_tabs.h"
 #import "browser_engine/be_infobars.h"
 #import "browser_engine/be_page_info.h"
 #import "browser_engine/be_passwords.h"
@@ -363,6 +364,7 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
     _observer = std::make_unique<browser_engine::TabObserver>(self);
     _observer->StartObserving(tab->GetContents());
     browser_engine::UseAppPermissionPrompts(tab->GetContents());
+    browser_engine::KeepAgentTabLoaded(tab->GetContents());
     _passwordOffer =
         std::make_unique<browser_engine::TabPasswordOffer>(tab, self);
     _infobars = std::make_unique<browser_engine::TabInfobars>(self);
@@ -386,6 +388,7 @@ BESecurity SecurityFromLevel(security_state::SecurityLevel level) {
   _observer->StartObserving([self contents]);
   _infobars->StartObserving([self contents]);
   browser_engine::UseAppPermissionPrompts([self contents]);
+  browser_engine::KeepAgentTabLoaded([self contents]);
   [self scheduleUpdate];
 }
 
