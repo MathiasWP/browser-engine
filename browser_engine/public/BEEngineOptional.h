@@ -1337,4 +1337,77 @@ NS_SWIFT_UI_ACTOR
 - (void)deleteStoragePartition:(NSString *)partition completion:(void (^)(void))completion;
 @end
 
+// MARK: The app's own web UI outside the tab strip (14 Nov 2026)
+
+@protocol BEWebPanel;
+
+/// What a web panel tells the app, each on a later task.
+NS_SWIFT_UI_ACTOR
+@protocol BEWebPanelDelegate <NSObject>
+@optional
+/// One of its pages has loaded (its load event), each time one does.
+- (void)webPanelDidFinishLoading:(id<BEWebPanel>)panel;
+/// An address the panel doesn't show: a link (clicked, ⌘-clicked, or followed by the page itself),
+/// `window.open`, a redirect, or `loadURL:` outside its folder. The app opens it (in a tab); the
+/// panel stays on its page. Never one of the panel's own pages, nor an address that means something
+/// only in the page (about:, javascript:, data:, blob:).
+- (void)webPanel:(id<BEWebPanel>)panel openURL:(NSURL *)url;
+/// Its page went away (its renderer crashed or was killed): the view is empty until the app loads a
+/// page again.
+- (void)webPanelDidCrash:(id<BEWebPanel>)panel;
+/// Chromium closed it, as `close` does: its profile is being deleted, or Chromium is quitting. The
+/// app makes a new one if it needs one.
+- (void)webPanelDidClose:(id<BEWebPanel>)panel;
+@end
+
+/// A page of the app's own UI (its chat, say) in no window's tab strip: the app puts `view` where
+/// it wants (a sidebar, a card over the page, a sheet, a window of its own). It's in no history,
+/// session, recently closed or tab list (Chrome's, extensions' or the address bar's), is never
+/// discarded, and offers no autofill or passwords. Its right-click menu has only spelling, editing
+/// (Undo, Redo, Cut, Copy, Paste, Select All) and Copy Link Address, nothing that opens Chrome's
+/// pages. `alert()` and `confirm()` return at once, file pickers cancel, and camera and microphone
+/// are refused: the app's bridge does those. (Chrome: a WebContents of its own outside the tab
+/// strip, as its own panels are.)
+NS_SWIFT_UI_ACTOR
+@protocol BEWebPanel <NSObject>
+/// The page's view, the same one for the panel's life, which the app sizes and places, and removes
+/// after `close`. The page renders while the view is in a window and neither hidden nor covered,
+/// takes `prefers-color-scheme` from the app's appearance (`NSApp.effectiveAppearance`), and sends
+/// the keys it doesn't use to the app's menus.
+@property (nonatomic, readonly) NSView *view;
+@property (nonatomic, weak, nullable) id<BEWebPanelDelegate> delegate;
+/// Loads `url` if it's a file:// URL inside the panel's folder; any other goes to the delegate's
+/// `openURL:`.
+- (void)loadURL:(NSURL *)url;
+/// A session on the page itself (no `Target.setAutoAttach`), for the app's bridge to its own page:
+/// `Runtime.addBinding` (its calls come as `Runtime.bindingCalled`; it stays through reloads) and
+/// `Runtime.evaluate`. `Trusted` is fine for the app's own page, but never let an agent use this
+/// session. A browser session lists the page as a target of type "other" (`tabForDevToolsTarget:`
+/// is nil for it): a relay for agents keeps them off it. Nil once closed.
+- (nullable id<BEDevToolsSession>)openDevToolsSessionWithAccess:(BEDevToolsAccess)access
+    NS_SWIFT_NAME(openDevToolsSession(access:));
+/// Gives the page the keyboard in its view's window (the app makes that window key).
+- (void)focus;
+/// Shown or not, as hiding `view` is: a hidden page is throttled as a background tab's (no frames,
+/// slower timers) but still runs what the app sends it.
+- (void)setVisible:(BOOL)visible;
+/// Closes the page (dealloc does too): then nothing the app calls does anything, and the delegate
+/// hears nothing more.
+- (void)close;
+@end
+
+NS_SWIFT_UI_ACTOR
+@protocol BEEngineWebPanels <NSObject>
+@optional
+/// A web panel, showing nothing yet, that loads only file:// URLs inside `folder` (a directory;
+/// build the pages' URLs from this same URL); frames and links elsewhere are refused, other
+/// addresses go to its delegate's `openURL:`, and its pages read no file with `fetch` (Chrome's
+/// rule for file:// pages, which keeps out module scripts too: bundle classic scripts or inline
+/// them). Its pages keep to storage of their own, in memory and shared by every web panel until the
+/// app quits: no cookies, storage, cache or history in common with the profile. Nil before Chromium
+/// has started, while it quits, and for a folder that isn't a file URL.
+- (nullable id<BEWebPanel>)makeWebPanelWithFolder:(NSURL *)folder
+    NS_SWIFT_NAME(makeWebPanel(folder:));
+@end
+
 NS_ASSUME_NONNULL_END

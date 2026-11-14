@@ -35,6 +35,10 @@ NS_ASSUME_NONNULL_BEGIN
 @interface BEChromiumEngine (DevTools) <BEEngineDevTools>
 @end
 
+// be_web_panel.mm
+@interface BEChromiumEngine (WebPanels) <BEEngineWebPanels>
+@end
+
 NS_ASSUME_NONNULL_END
 
 // The framework's one exported function (listed in chrome/app/framework.exports

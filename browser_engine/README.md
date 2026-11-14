@@ -111,6 +111,7 @@ app         ─ puts tab.view (the WebContents' NSView) in its page area
 | `be_task_manager.{h,mm}` | `BEChromiumTaskManager` (`BETaskManager`, from `BEEngineTaskManager`): Chrome's `TaskManagerInterface` observed every 2 s for CPU, memory and network, as its own window does; ids checked with `IsTaskValid` before every call |
 | `be_devtools_session.{h,mm}` | The DevTools protocol for the app: `BEChromiumDevToolsSession` (`BEDevToolsSession`), an in-process `DevToolsAgentHostClient` (as `--remote-debugging-pipe`'s, without its switch: no infobar, `navigator.webdriver` false) on a tab's tab target (`BETabDevTools`; the page through `Target.setAutoAttach` flatten) or a new browser target (`BEEngineDevTools`), access as `IsTrusted`/`MayAttachToURL`/`MayRead`/`MayWriteLocalFiles`, messages on a later task; `setAgentActive:` as Chrome's actor holds a tab it acts on (`ActorTask::DidContentsEnterActorControl()`: a visible, awake capture, page focus, in-page `<select>` menus) and not discardable |
 | `be_agent_tabs.{h,mm}` | Agents' tabs (`BEWindowAgentTabs`, `BETab.storagePartition`), Shuttle's model: a StoragePartition of the window's profile per agent (domain `beagent` + 32 letters of the name's SHA-256, the name as partition name), tabs made with `SiteInstance::CreateForFixedStoragePartition()` at the end of the strip; new tabs opened from them keep to it (touch point 31), they're kept out of history, sessions, recently closed, discarding (32) and the address bar's open tabs (`be_autocomplete.mm`), and keep their session cookies (33). Deleting: caches, then `AsyncObliterateStoragePartition()`, and the HTTP cache's directory in `~/Library/Caches`, which that leaves; a partition still loaded is emptied, and its directories removed at the next launch (a marker in `Storage/be_deleted_agents/`) |
+| `be_web_panel.mm` | Web panels, the app's own UI outside every tab strip (`BEEngineWebPanels`, `BEWebPanel`): a WebContents the layer makes and owns (`WebContents::Create()`, no tab helpers, as `views::WebView` makes Chrome's own panels), in one in-memory StoragePartition of the everyday profile (domain `bewebpanel`) that every panel shares, the profile kept loaded meanwhile (`ScopedProfileKeepAlive`, `kAppWindow`) and the page closed when the profile is deleted or destroyed. As its delegate: no new windows (`IsWebContentsCreationOverridden()`), links elsewhere handed to the app (`OpenURLFromTab()`), a right-click menu of its own, and the keys the page leaves sent to the app's menus. A navigation throttle of its own, added from `DidStartNavigation()` with `RegisterThrottleForTesting()` (not test-only at 156; no touch point), keeps the page and its frames, redirects included, to the app's folder. DevTools sessions on its page target (`be_devtools_session.mm`) |
 | `be_passwords_data.{h,mm}` | `BEPasswordsData`: the app's passwords page for a window's profile (`BEWindowPasswords`): a `SavedPasswordsPresenter`, `InsecureCredentialsManager` (weak and reused only), CSV export and import (`PasswordManagerExporter`, `PasswordImporter`), and `BEAuthentication` (macOS's check of who's there, one at a time, as Chrome's device authenticator does it) |
 | `be_autofill_data.{h,mm}` | `BEAutofillData`: the app's addresses and payment cards sheets (`BEWindowAddresses`, `BEWindowPaymentCards`): the profile's `AddressDataManager` and `PaymentsDataManager`, local data only, each country's address form, Chrome's card checks and "Verify it's you" |
 | `be_import.{h,mm}` | `BEImport`: importing into a window's profile (`BEWindowImport`): `ImporterList` and `ExternalProcessImporterHost`, headless, each import owning itself with its profile kept alive; Safari's bookmarks need Full Disk Access, which the sources say |
@@ -395,6 +396,27 @@ last finished job's saved state.
   relaunch: the app reopens what it needs. Close an agent's tabs before
   `deleteStoragePartition:`. Shared with the profile still: permissions and site settings, the
   downloads list, extensions, password and autofill offers, saved favicons.
+- **Web panels (14 Nov).** `makeWebPanel(folder:)` once Chromium runs; `view` is an ordinary NSView,
+  so it goes anywhere (a sidebar, over the page, a sheet, the app's own NSWindow), sized by the app.
+  The page is hidden until the view is in a window, and hidden, occluded or shown with it after;
+  `setVisible:` hides the view. Build page URLs from the folder URL given: one spelled otherwise
+  (another case, `file://localhost/…`) is refused, and symlinks aren't resolved (one in the folder
+  pointing out of it is followed: the folder is the app's own). What the panel doesn't show comes to
+  `webPanel:openURL:` (Swift: `webPanel(_:open:)`; `loadURL:` is `load(_:)`) for a tab: links,
+  `window.open`, mailto: and other schemes, never about:, javascript:, data:, blob: or the panel's
+  own pages (a ⌘-click on one of those does nothing). Chrome's file:// rules hold: the page's origin
+  is opaque, so `fetch()`, XHR, module scripts, `import()` and workers of any file fail, the
+  folder's too, while images, styles and classic scripts load from anywhere; the engine refuses only
+  navigations and frames outside the folder. So the Svelte page is one classic script (or inlined),
+  and its data comes through the bridge: open the DevTools session (`Trusted` is fine for the app's
+  own page) before `loadURL:`, `Runtime.addBinding` for the page's calls, `Runtime.evaluate` for the
+  app's. A browser session (an agents' relay) lists the panel as a target of type "other": keep
+  agents off it. Shared with the profile: extensions allowed on file URLs (each needs "Allow access
+  to file URLs"), extensions' webRequest for its network requests, permissions and site settings,
+  downloads (`<a download>` lands in the profile's list). `alert()`/`confirm()` return at once, file
+  pickers cancel, camera and microphone are refused, and there's no find bar or zoom of its own (⌘+
+  goes to the app's menu, which zooms the active tab). After `webPanelDidCrash:` load the page
+  again; after `webPanelDidClose:` (its profile deleted, or Chromium quitting) make a new panel.
 - **Arguments.** Suggested: `--no-first-run --no-default-browser-check
   --disable-features=Glic` (below).
 
@@ -522,6 +544,21 @@ Marked in code with `// UNVERIFIED:`, plus what reading couldn't settle:
    sessions, recently closed and discarding leave it out (32) and its session cookies survive a
    relaunch (33); hidden agent-active tabs' rAF, timers, focus and in-page `<select>`; screenshots
    of a background tab never shown (its view may be 0×0 until the app sizes it).
+9. Web panels (14 Nov), compiled, never run: that a throttle added in `DidStartNavigation()` with
+   `RegisterThrottleForTesting()` sees every navigation of the page and its frames (redirects too) and
+   that `CANCEL_AND_IGNORE` leaves the page as it was; `window.open` returning null, and ⌘-clicks,
+   `target=_blank` and mailto: links reaching `openURL:`; file:// module scripts and `fetch()` refused
+   (CORS from origin "null") while classic scripts, styles and images load; `focus` making the page
+   first responder, and keys the page leaves reaching the app's menus (⌘C/⌘V through the Edit menu,
+   ⌘T) in Chrome's windows and in plain AppKit ones, without coming back to the page; Chrome's Mac
+   `WebContentsViewDelegate` (focus, drag and drop) in a window with no widget; `prefers-color-scheme`
+   following `NSApp.effectiveAppearance` live (content's `DefaultColorProviderSource` on the web
+   `NativeTheme`); a panel first shown in a window rendering (made hidden), and hidden or occluded
+   with its view; `webPanelDidCrash:` once per crash (Task Manager's End process too), the DevTools
+   session surviving it (`Inspector.targetCrashed`) and `loadURL:` bringing the page back; the
+   right-click menu at the click (the page's coordinates in its flipped view) with Chromium's tasks
+   running under it; closing when the profile is deleted (its deletion then going ahead) or destroyed
+   at quit; and that a `kAppWindow` keep-alive does nothing else.
 
 ## Open questions
 
